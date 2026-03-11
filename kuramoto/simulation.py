@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.integrate import RK45, solve_ivp
@@ -11,8 +10,9 @@ from .analysis import order_parameter, local_order, coupling_tension
 from .coupling import CouplingMatrix
 from .grid import CorticalGrid
 
-from .config import SimulationConfig
-
+from typing import TYPE_CHECKING 
+if TYPE_CHECKING:
+    from .config import SimulationConfig # Only import for type check
 
 # --- Dynamics: Kuramoto right-hand sides ---
 
@@ -193,13 +193,16 @@ class Simulation:
             state_list.append(state)
 
             if storage is not None:
-                K = None if self.coupling.is_uniform else self.coupling.K
+                if self.coupling.is_uniform:
+                    K = None
+                else:
+                    K = self.coupling.K
                 storage.write_snapshot(t, state, K=K)
                 R, _ = order_parameter(theta)
                 storage.write_scalar(t, "order_param", R)
                 local_R = local_order(theta, self.grid)
                 storage.write_scalar(t, "local_order", local_R)
-                coupling_t= coupling_tension(theta, self.omega0, K)
+                coupling_t= coupling_tension(self.grid.unflatten(theta), self.omega0, self.coupling.K)
                 storage.write_scalar(t, "coupling_tension", coupling_t)
 
         if storage is not None:
