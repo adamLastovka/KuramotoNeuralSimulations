@@ -28,8 +28,8 @@ class CorticalGrid:
 
     def pairwise_distances(self) -> np.ndarray:
         """Euclidean distance and displacement matrices (n_total x n_total)."""
-        coords = np.array([self.flat_to_2d(i) for i in range(self.n_total)])
-        r, c = coords[:, 0], coords[:, 1]
+        r = np.arange(self.n_total, dtype=float) // self.n_cols
+        c = np.arange(self.n_total, dtype=float) % self.n_cols
 
         dr = r[:, None] - r[None, :]
         dc = c[:, None] - c[None, :]

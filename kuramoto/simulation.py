@@ -6,7 +6,12 @@ import numpy as np
 from scipy.integrate import RK45, solve_ivp
 from scipy.sparse import spmatrix
 
-from .analysis import order_parameter, local_order, coupling_tension
+from .analysis import (
+    order_parameter,
+    local_order,
+    coupling_term,
+    coupling_term_uniform,
+)
 from .coupling import CouplingMatrix
 from .grid import CorticalGrid
 
@@ -162,8 +167,12 @@ class Simulation:
 
     def _step_with_delays(self, rhs, theta0, t_span, dt):
         """Manual RK45 stepping so we can feed the delay buffer after each step."""
-        t_list, y_list = [], []
+        n_est = int(np.ceil((t_span[1] - t_span[0]) / dt)) + 2
+        n_osc = len(theta0)
+        t_out = np.empty(n_est)
+        y_out = np.empty((n_osc, n_est))
         next_save = t_span[0] + dt
+        step_count = 0
 
         stepper = RK45(rhs, t_span[0], theta0, t_span[1],
                        max_step=dt, rtol=1e-6, atol=1e-6)
@@ -173,42 +182,52 @@ class Simulation:
             self.delays.push(stepper.t, stepper.y)
 
             if stepper.t >= next_save - 1e-12:
-                t_list.append(stepper.t)
-                y_list.append(stepper.y.copy())
+                if step_count >= n_est:
+                    t_out = np.concatenate([t_out, [stepper.t]])
+                    y_out = np.column_stack([y_out, stepper.y.copy()])
+                else:
+                    t_out[step_count] = stepper.t
+                    y_out[:, step_count] = stepper.y
+                step_count += 1
                 next_save += dt
 
-        t_out = np.array(t_list)
-        y_out = np.column_stack(y_list) if y_list else np.empty((len(theta0), 0))
+        t_out = t_out[:step_count].copy()
+        y_out = y_out[:, :step_count].copy()
         return t_out, y_out
 
     def _collect_results(self, t_out, y_out, storage: InMemoryStorage | None):
         """Pack solver output into the (t_list, state_list) format."""
         t_list: list[float] = []
         state_list: list[dict] = []
-
-        rhs = self._make_rhs() # for evaluating omega at each step
+        omega = self.omega0
+        coupling = self.coupling
 
         for i in range(len(t_out)):
             t = float(t_out[i])
             theta = y_out[:, i].copy()
 
-            theta_dot = rhs(t, theta)
-            omega = self.omega0 # omega constant for now
+            theta_src = self.delays.get_delayed(t) if self.delays is not None else None
+            if coupling.is_uniform:
+                coupling_val = coupling_term_uniform(
+                    theta, coupling.uniform_strength, theta_src
+                )
+            else:
+                K = coupling.K
+                coupling_val = coupling_term(theta, K, theta_src)
+            theta_dot = omega + coupling_val
 
-            state = {"theta": theta, "theta_dot": theta_dot, "omega": omega} 
+            state = {"theta": theta, "theta_dot": theta_dot, "omega": omega}
             t_list.append(t)
             state_list.append(state)
 
-            K = self.coupling.K
-
             if storage is not None:
+                K = coupling.K
                 storage.write_snapshot(t, state, K=K)
                 R, _ = order_parameter(theta)
                 storage.write_scalar(t, "order_param", R)
                 local_R = local_order(theta, self.grid)
                 storage.write_scalar(t, "local_order", local_R)
-                coupling_t= coupling_tension(theta, omega, K)
-                storage.write_scalar(t, "coupling_tension", coupling_t)
+                storage.write_scalar(t, "coupling_tension", omega - coupling_val)
 
         if storage is not None:
             storage.finalize()

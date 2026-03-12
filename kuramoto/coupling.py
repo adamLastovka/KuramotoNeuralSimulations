@@ -35,8 +35,7 @@ class CouplingMatrix:
 
         if mode != "uniform":
             self._K = self._build()
-        else: # Matrix not required for uniform coupling but initialized for consistency
-            self._K = csr_matrix(np.full((self.grid.n_total, self.grid.n_total), self._uniform_strength))
+        # Uniform mode: no matrix built; RHS uses uniform_strength only
 
     def _build(self) -> csr_matrix:
         dist,dr,dc = self.grid.pairwise_distances()
@@ -66,7 +65,7 @@ class CouplingMatrix:
         return csr_matrix((weights, (rows, cols)), shape=(n, n))
 
     @property
-    def K(self) -> csr_matrix:
+    def K(self) -> csr_matrix | None:
         return self._K
 
     @property

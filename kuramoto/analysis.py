@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.ndimage import uniform_filter
+from scipy.sparse import spmatrix
 
 from .grid import CorticalGrid
-from scipy.sparse import spmatrix
 
 
 def order_parameter(theta: np.ndarray) -> tuple[float, float]:
@@ -19,26 +20,41 @@ def local_order(
 ) -> np.ndarray:
     """
     Local order parameter for each node (coherence within neighborhood).
+    Vectorized via box convolution of exp(1j*theta); boundaries use mode='reflect'.
 
     Returns:
         2D array (n_rows, n_cols) of local R values.
     """
     theta_2d = grid.unflatten(theta)
-    n_rows, n_cols = grid.shape
-    local_R = np.zeros((n_rows, n_cols))
-
-    for i in range(n_rows):
-        for j in range(n_cols):
-            i_min = max(0, int(i - radius))
-            i_max = min(n_rows, int(i + radius + 1))
-            j_min = max(0, int(j - radius))
-            j_max = min(n_cols, int(j + radius + 1))
-
-            patch = theta_2d[i_min:i_max, j_min:j_max]
-            z = np.mean(np.exp(1j * patch))
-            local_R[i, j] = np.abs(z)
-
+    z = np.exp(1j * theta_2d)
+    size = (int(2 * radius) + 1, int(2 * radius) + 1)
+    z_mean_real = uniform_filter(z.real, size=size, mode="reflect")
+    z_mean_imag = uniform_filter(z.imag, size=size, mode="reflect")
+    local_R = np.abs(z_mean_real + 1j * z_mean_imag)
     return local_R
+
+
+def coupling_term(
+    theta: np.ndarray,
+    K: spmatrix,
+    theta_source: np.ndarray | None = None,
+) -> np.ndarray:
+    """Coupling term for sparse K: cos(theta)*(K@sin(src)) - sin(theta)*(K@cos(src)).
+    Single evaluation for reuse in theta_dot and coupling_tension."""
+    src = theta if theta_source is None else theta_source
+    return np.cos(theta) * (K @ np.sin(src)) - np.sin(theta) * (K @ np.cos(src))
+
+
+def coupling_term_uniform(
+    theta: np.ndarray,
+    strength: float,
+    theta_source: np.ndarray | None = None,
+) -> np.ndarray:
+    """Coupling term for uniform all-to-all: strength * (cos(theta)*S - sin(theta)*C)."""
+    src = theta if theta_source is None else theta_source
+    S, C = np.sum(np.sin(src)), np.sum(np.cos(src))
+    return strength * (np.cos(theta) * S - np.sin(theta) * C)
+
 
 def coupling_tension(
     theta: np.ndarray,
