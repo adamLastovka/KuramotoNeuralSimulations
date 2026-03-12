@@ -13,6 +13,7 @@ from .grid import CorticalGrid
 from typing import TYPE_CHECKING 
 if TYPE_CHECKING:
     from .config import SimulationConfig # Only import for type check
+    from .storage import InMemoryStorage
 
 # --- Dynamics: Kuramoto right-hand sides ---
 
@@ -151,7 +152,7 @@ class Simulation:
         delays = self.delays
 
         def rhs(t: float, theta: np.ndarray) -> np.ndarray:
-            theta_src = delays.get_delayed(t) if delays is not None else None
+            theta_src = delays.get_delayed(t) if delays is not None else None # pointer to delays object persists between calls
 
             if coupling.is_uniform:
                 return kuramoto_rhs_uniform(theta, omega, coupling.uniform_strength, theta_src)
@@ -180,29 +181,33 @@ class Simulation:
         y_out = np.column_stack(y_list) if y_list else np.empty((len(theta0), 0))
         return t_out, y_out
 
-    def _collect_results(self, t_out, y_out, storage):
+    def _collect_results(self, t_out, y_out, storage: InMemoryStorage | None):
         """Pack solver output into the (t_list, state_list) format."""
         t_list: list[float] = []
         state_list: list[dict] = []
 
+        rhs = self._make_rhs() # for evaluating omega at each step
+
         for i in range(len(t_out)):
             t = float(t_out[i])
             theta = y_out[:, i].copy()
-            state = {"theta": theta, "omega": self.omega0}
+
+            theta_dot = rhs(t, theta)
+            omega = self.omega0 # omega constant for now
+
+            state = {"theta": theta, "theta_dot": theta_dot, "omega": omega} 
             t_list.append(t)
             state_list.append(state)
 
+            K = self.coupling.K
+
             if storage is not None:
-                if self.coupling.is_uniform:
-                    K = None
-                else:
-                    K = self.coupling.K
                 storage.write_snapshot(t, state, K=K)
                 R, _ = order_parameter(theta)
                 storage.write_scalar(t, "order_param", R)
                 local_R = local_order(theta, self.grid)
                 storage.write_scalar(t, "local_order", local_R)
-                coupling_t= coupling_tension(self.grid.unflatten(theta), self.omega0, self.coupling.K)
+                coupling_t= coupling_tension(theta, omega, K)
                 storage.write_scalar(t, "coupling_tension", coupling_t)
 
         if storage is not None:

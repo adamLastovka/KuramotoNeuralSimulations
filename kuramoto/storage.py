@@ -13,7 +13,7 @@ class InMemoryStorage:
         self.scalars: dict[str, list[tuple[float, float]]] = {}
         self._step = 0
 
-    def write_snapshot(self, t: float, state: dict, K: "spmatrix | None" = None):
+    def write_snapshot(self, t: float, state: dict, K: spmatrix | None = None):
         self._step += 1
         if self._step % self.downsample_every != 0:
             return
