@@ -195,21 +195,61 @@ def animate_2d(
 
 
 def animate_from_run(
-    state_list: list[dict],
+    source: Any,
     grid: CorticalGrid,
-    t_list: list[float] | None = None,
+    t_list: list[float] | np.ndarray | None = None,
     variable: str = "phase",
     downsample: int = 1,
     interval: int = 50,
     save_path: str | None = None,
     **kwargs: Any,
 ) -> FuncAnimation:
-    indices = list(range(0, len(state_list), downsample))
-    states = [state_list[i] for i in indices]
-    times = [t_list[i] for i in indices] if t_list is not None else None
-    snapshots = [grid.unflatten(s["theta"]) for s in states]
+    """Animate phase/fields from either a sim object, a theta array, or legacy state list.
+
+    Supported inputs:
+      - ``sim``: object with ``sim.results["theta"]`` and optionally ``sim.results["ts"]``
+      - ``theta_series``: ndarray with shape ``(T, N)`` or snapshot ``(N,)``
+      - legacy ``state_list``: list[dict] with ``state["theta"]``
+    """
+    theta_series: np.ndarray | None = None
+    if hasattr(source, "results"):
+        theta_series = np.asarray(source.results["theta"])
+        if t_list is None and "ts" in source.results:
+            t_list = np.asarray(source.results["ts"])
+    elif isinstance(source, np.ndarray):
+        theta_series = np.asarray(source)
+    else:
+        # Legacy: list[dict]
+        state_list = source
+        indices = list(range(0, len(state_list), downsample))
+        states = [state_list[i] for i in indices]
+        times = [t_list[i] for i in indices] if t_list is not None else None
+        snapshots = [grid.unflatten(s["theta"]) for s in states]
+        return animate_2d(
+            snapshots,
+            variable=variable,
+            t_list=times,
+            interval=interval,
+            save_path=save_path,
+            **kwargs,
+        )
+
+    x = np.asarray(theta_series)
+    if x.ndim == 1:
+        snapshots = [grid.unflatten(x)]
+        times = [t_list[0]] if t_list is not None and np.asarray(t_list).size > 0 else None
+    elif x.ndim == 2:
+        indices = list(range(0, x.shape[0], downsample))
+        snapshots = [grid.unflatten(x[i]) for i in indices]
+        times = [float(np.asarray(t_list)[i]) for i in indices] if t_list is not None else None
+    else:
+        raise ValueError(f"animate_from_run expects (N,) or (T,N); got shape={x.shape}")
 
     return animate_2d(
-        snapshots, variable=variable, t_list=times,
-        interval=interval, save_path=save_path, **kwargs,
+        snapshots,
+        variable=variable,
+        t_list=times,
+        interval=interval,
+        save_path=save_path,
+        **kwargs,
     )

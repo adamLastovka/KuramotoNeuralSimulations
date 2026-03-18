@@ -1,9 +1,3 @@
-"""Minimal Kuramoto oscillator package for 2D cortical sheets.
-
-Supports uniform and spatial coupling, optional global time delays,
-and standard analysis / visualisation helpers.
-"""
-
 from .grid import CorticalGrid
 from .kernels import (
     gaussian_kernel,
@@ -22,19 +16,19 @@ from .config import (
     NeuronConfig,
     InitThetaConfig,
     InitOmegaConfig,
-    DelayConfig,
     SimulationConfig,
     load_config,
     build_simulation,
 )
 from .simulation import (
     Simulation,
-    DelayBuffer,
+    KuramotoParams,
     kuramoto_rhs,
-    kuramoto_rhs_uniform,
+    solve_forward,
 )
 from .analysis import (
     order_parameter,
+    order_parameter_jax,
     gradient_from_state,
     gradient_time_series,
     gradient_maps,
@@ -47,7 +41,12 @@ from .analysis import (
     material_derivative_2d,
     gradient_and_material_maps,
 )
-from .storage import InMemoryStorage
+from .adjoint import (
+    final_order_parameter,
+    mean_order_parameter,
+    grads_final_R,
+    grads_mean_R,
+)
 from .plotting import (
     plot_2d,
     plot_coupling_matrix,
@@ -73,16 +72,19 @@ __all__ = [
     "NeuronConfig",
     "InitThetaConfig",
     "InitOmegaConfig",
-    "DelayConfig",
     "SimulationConfig",
     "build_simulation",
     "load_config",
     "Simulation",
-    "DelayBuffer",
+    "KuramotoParams",
     "kuramoto_rhs",
-    "kuramoto_rhs_uniform",
+    "solve_forward",
     "order_parameter",
-    "InMemoryStorage",
+    "order_parameter_jax",
+    "final_order_parameter",
+    "mean_order_parameter",
+    "grads_final_R",
+    "grads_mean_R",
     "gradient_from_state",
     "gradient_time_series",
     "gradient_maps",

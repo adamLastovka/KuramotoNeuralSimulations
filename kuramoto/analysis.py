@@ -1,17 +1,37 @@
 from __future__ import annotations
 
 import numpy as np
+import jax.numpy as jnp
 from scipy.ndimage import uniform_filter
-from scipy.sparse import spmatrix
 
 from .grid import CorticalGrid
 
 
-def order_parameter(theta: np.ndarray) -> tuple[float, float]:
-    """Compute the order parameter. R measures global coherence (0 = incoherent, 1 = fully synchronised).
+def order_parameter(theta: np.ndarray) -> tuple[np.ndarray | float, np.ndarray | float]:
+    """Compute the (global) order parameter.
+
+    Accepts:
+      - ``theta`` with shape ``(N,)`` -> returns ``(R, psi)`` as floats
+      - ``theta`` with shape ``(T, N)`` -> returns ``(R_t, psi_t)`` as arrays
+      - ``theta`` as a simulation-like object with ``.results`` -> uses ``.results["theta"]``
     """
-    z = np.mean(np.exp(1j * theta))
-    return float(np.abs(z)), float(np.angle(z))
+    if hasattr(theta, "results"):
+        theta = theta.results["theta"]
+    x = np.asarray(theta)
+    if x.ndim == 1:
+        z = np.mean(np.exp(1j * x))
+        return float(np.abs(z)), float(np.angle(z))
+    if x.ndim == 2:
+        z = np.mean(np.exp(1j * x), axis=1)  # (T,)
+        return np.abs(z), np.angle(z)
+    raise ValueError(f"order_parameter expects (N,) or (T,N); got shape={x.shape}")
+
+
+def order_parameter_jax(theta: jnp.ndarray) -> jnp.ndarray:
+    """Order parameter R in JAX, scalar arithmetic only"""
+    cos_mean = jnp.mean(jnp.cos(theta))
+    sin_mean = jnp.mean(jnp.sin(theta))
+    return jnp.sqrt(cos_mean ** 2 + sin_mean ** 2)
 
 def local_order(
     theta: np.ndarray,
@@ -19,57 +39,59 @@ def local_order(
     radius: float = 2.0,
 ) -> np.ndarray:
     """
-    Local order parameter for each node (coherence within neighborhood).
-    Vectorized via box convolution of exp(1j*theta); boundaries use mode='reflect'.
+    Local order parameter for each node
+    Vectorized via box convolution of exp(1j*theta);
 
-    Returns:
-        2D array (n_rows, n_cols) of local R values.
+    Accepts:
+        - ``theta`` with shape ``(N,)`` -> returns ``R`` as a float
+        - ``theta`` with shape ``(T, N)`` -> returns ``R_t`` as an array
+        - ``theta`` as a simulation-like object with ``.results`` -> returns ``R_t`` as an array or float
     """
-    theta_2d = grid.unflatten(theta)
-    z = np.exp(1j * theta_2d)
-    size = (int(2 * radius) + 1, int(2 * radius) + 1)
-    z_mean_real = uniform_filter(z.real, size=size, mode="reflect")
-    z_mean_imag = uniform_filter(z.imag, size=size, mode="reflect")
-    local_R = np.abs(z_mean_real + 1j * z_mean_imag)
-    return local_R
+    if hasattr(theta, "results"):
+        theta = theta.results["theta"]
+
+
+    x = np.asarray(theta)
+    if x.ndim == 1: 
+        theta_2d = grid.unflatten(x)
+        z = np.exp(1j * theta_2d)
+        size = (int(2 * radius) + 1, int(2 * radius) + 1)
+        z_mean_real = uniform_filter(z.real, size=size, mode="reflect")
+        z_mean_imag = uniform_filter(z.imag, size=size, mode="reflect")
+        return np.abs(z_mean_real + 1j * z_mean_imag)
+
+    if x.ndim == 2:
+        # Return (T, n_rows, n_cols); loop over time because scipy uniform_filter
+        # operates on single 2D arrays.
+        return np.stack([local_order(xi, grid, radius=radius) for xi in x], axis=0)
+
+    raise ValueError(f"local_order expects (N,) or (T,N); got shape={x.shape}")
 
 
 def coupling_term(
     theta: np.ndarray,
-    K: spmatrix,
+    K: np.ndarray,
     theta_source: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Coupling term for sparse K: cos(theta)*(K@sin(src)) - sin(theta)*(K@cos(src)).
-    Single evaluation for reuse in theta_dot and coupling_tension."""
+    """Coupling term: cos(theta)*(K@sin(src)) - sin(theta)*(K@cos(src))."""
     src = theta if theta_source is None else theta_source
     return np.cos(theta) * (K @ np.sin(src)) - np.sin(theta) * (K @ np.cos(src))
-
-
-def coupling_term_uniform(
-    theta: np.ndarray,
-    strength: float,
-    theta_source: np.ndarray | None = None,
-) -> np.ndarray:
-    """Coupling term for uniform all-to-all: strength * (cos(theta)*S - sin(theta)*C)."""
-    src = theta if theta_source is None else theta_source
-    S, C = np.sum(np.sin(src)), np.sum(np.cos(src))
-    return strength * (np.cos(theta) * S - np.sin(theta) * C)
 
 
 def coupling_tension(
     theta: np.ndarray,
     omega: np.ndarray,
-    K: spmatrix,
+    K: np.ndarray,
     theta_source: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Coupling tension F = omega - coupling term"""
+    """Coupling tension F = omega - coupling term."""
     src = theta if theta_source is None else theta_source
     coupling = np.cos(theta) * (K @ np.sin(src)) - np.sin(theta) * (K @ np.cos(src))
     return omega - coupling
 
 
 # ---------------------------------------------------------------------------
-# Phase-field gradient (traveling-wave / spatial structure)
+# Phase-field gradient (traveling-wave / spatial structure) - deprecated for now
 # ---------------------------------------------------------------------------
 def angle_diff(b: np.ndarray, a: np.ndarray) -> np.ndarray:
     """Circular difference (b - a) wrapped to (-π, π], in radians."""
@@ -234,25 +256,36 @@ def bulk_gradient_metric(
 
 
 def gradient_time_series(
-    state_list: list[dict],
+    state_list: list[dict] | np.ndarray,
     grid: CorticalGrid,
     metric: str = "mean_magnitude",
 ) -> list[float]:
     """Bulk gradient metric at each time step (post-processing).
 
-    state_list: from Simulation.run() or storage snapshots (each dict has 'theta').
+    Accepts:
+      - ``state_list`` as a list of dicts with ``{"theta": ...}`` (legacy)
+      - ``theta_series`` as an array with shape ``(T, N)``
+      - a simulation-like object with ``.results["theta"]``
     """
-    return [
-        bulk_gradient_metric(s["theta"], grid, metric=metric)
-        for s in state_list
-    ]
+    if hasattr(state_list, "results"):
+        theta_series = state_list.results["theta"]
+        return [bulk_gradient_metric(theta_series[i], grid, metric=metric) for i in range(theta_series.shape[0])]
+
+    x = np.asarray(state_list)
+    if isinstance(state_list, np.ndarray) and x.ndim == 1:
+        return [bulk_gradient_metric(x, grid, metric=metric)]
+    if isinstance(state_list, np.ndarray) and x.ndim == 2:
+        return [bulk_gradient_metric(x[i], grid, metric=metric) for i in range(x.shape[0])]
+
+    # Legacy path: list[dict]
+    return [bulk_gradient_metric(s["theta"], grid, metric=metric) for s in state_list]
 
 
 def gradient_maps(
-    state_list: list[dict],
+    state_list: list[dict] | np.ndarray,
     grid: CorticalGrid,
     indices: list[int] | None = None,
-    t_list: list[float] | None = None,
+    t_list: list[float] | np.ndarray | None = None,
 ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
     """Gradient maps at selected time indices (post-processing).
 
@@ -262,41 +295,83 @@ def gradient_maps(
 
     If indices is None, uses every state (can be large).
     """
-    if indices is None:
-        indices = list(range(len(state_list)))
-    n = len(state_list)
-    have_time = t_list is not None and len(t_list) == n and n >= 2
+    theta_series: np.ndarray | None = None
+    ts: np.ndarray | None = None
+    legacy_state_list: list[dict] | None = None
+
+    if hasattr(state_list, "results"):
+        theta_series = state_list.results["theta"]
+        ts = np.asarray(state_list.results.get("ts")) if "ts" in state_list.results else None
+        legacy_state_list = None
+    elif isinstance(state_list, np.ndarray):
+        theta_series = state_list
+        legacy_state_list = None
+    else:
+        legacy_state_list = state_list  # type: ignore[assignment]
+
+    if theta_series is not None and t_list is None and ts is not None:
+        t_list = ts
+
+    if legacy_state_list is not None:
+        if indices is None:
+            indices = list(range(len(legacy_state_list)))
+        n = len(legacy_state_list)
+    else:
+        if indices is None:
+            indices = list(range(theta_series.shape[0]))  # type: ignore[union-attr]
+        n = theta_series.shape[0]  # type: ignore[union-attr]
+
+    t_arr = np.asarray(t_list) if t_list is not None else None
+    have_time = t_arr is not None and t_arr.shape[0] == n and n >= 2
+
     out = []
     for i in indices:
-        s = state_list[i]
-        dr, dc, mag = gradient_from_state(s["theta"], grid)
+        if legacy_state_list is not None:
+            s = legacy_state_list[i]
+            theta_i = s["theta"]
+        else:
+            theta_i = theta_series[i]  # type: ignore[index]
+
+        dr, dc, mag = gradient_from_state(theta_i, grid)
         if not have_time:
             out.append((dr, dc, mag))
             continue
         # ∂θ/∂t at index i
         if i == 0:
-            dt = t_list[1] - t_list[0]
-            dtheta_dt_flat = phase_time_derivative(
-                state_list[0]["theta"], state_list[1]["theta"], dt
-            )
+            dt = float(t_arr[1] - t_arr[0])  # type: ignore[index]
+            if legacy_state_list is not None:
+                th_prev = legacy_state_list[0]["theta"]
+                th_next = legacy_state_list[1]["theta"]
+            else:
+                th_prev = theta_series[0]  # type: ignore[index]
+                th_next = theta_series[1]  # type: ignore[index]
+            dtheta_dt_flat = phase_time_derivative(th_prev, th_next, dt)
         elif i == n - 1:
-            dt = t_list[-1] - t_list[-2]
-            dtheta_dt_flat = phase_time_derivative(
-                state_list[-2]["theta"], state_list[-1]["theta"], dt
-            )
+            dt = float(t_arr[-1] - t_arr[-2])  # type: ignore[index]
+            if legacy_state_list is not None:
+                th_prev = legacy_state_list[-2]["theta"]
+                th_next = legacy_state_list[-1]["theta"]
+            else:
+                th_prev = theta_series[-2]  # type: ignore[index]
+                th_next = theta_series[-1]  # type: ignore[index]
+            dtheta_dt_flat = phase_time_derivative(th_prev, th_next, dt)
         else:
-            dt = t_list[i + 1] - t_list[i - 1]
-            dtheta_dt_flat = phase_time_derivative(
-                state_list[i - 1]["theta"], state_list[i + 1]["theta"], dt
-            )
+            dt = float(t_arr[i + 1] - t_arr[i - 1])  # type: ignore[index]
+            if legacy_state_list is not None:
+                th_prev = legacy_state_list[i - 1]["theta"]
+                th_next = legacy_state_list[i + 1]["theta"]
+            else:
+                th_prev = theta_series[i - 1]  # type: ignore[index]
+                th_next = theta_series[i + 1]  # type: ignore[index]
+            dtheta_dt_flat = phase_time_derivative(th_prev, th_next, dt)
         dtheta_dt = grid.unflatten(dtheta_dt_flat)
         out.append((dr, dc, mag, dtheta_dt))
     return out
 
 
 def gradient_and_material_maps(
-    state_list: list[dict],
-    t_list: list[float],
+    state_list: list[dict] | np.ndarray,
+    t_list: list[float] | np.ndarray | None,
     grid: CorticalGrid,
     indices: list[int] | None = None,
     v_r: np.ndarray | None = None,
@@ -309,6 +384,9 @@ def gradient_and_material_maps(
     phase velocity (v·∇θ = −∂θ/∂t), so Dθ/Dt ≈ 0. Otherwise pass v_r, v_c (2D per
     snapshot or fixed field) in grid-step per time unit.
     """
+    if t_list is None and hasattr(state_list, "results"):
+        t_list = state_list.results.get("ts")  # type: ignore[assignment]
+
     maps = gradient_maps(state_list, grid, indices=indices, t_list=t_list)
     result = []
     for idx, item in enumerate(maps):
