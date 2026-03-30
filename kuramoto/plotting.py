@@ -40,7 +40,6 @@ def coupling_to_2d(
 
 
 # --- static plots ---
-
 def plot_2d(
     data_2d: np.ndarray,
     variable: str = "phase",

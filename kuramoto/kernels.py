@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import numpy as np
-
+import jax.numpy as jnp
 
 def gaussian_kernel(d: np.ndarray, sigma: float) -> np.ndarray:
     """Gaussian falloff: exp(-d^2 / 2sigma^2)."""
@@ -145,3 +143,30 @@ def apply_kernel(
     if fn is None:
         raise ValueError(f"Unknown kernel: {name!r}")
     return fn(d, params, radius, dx, dy)
+
+
+# --- JAX versions ---
+def gaussian_kernel_jax(d: jnp.ndarray, sigma: jnp.ndarray) -> jnp.ndarray:
+    """Differentiable Gaussian falloff: exp(-d^2 / (2*sigma^2))."""
+    sigma = jnp.asarray(sigma)
+    return jnp.exp(-(d**2) / (2.0 * sigma**2))
+
+
+def apply_kernel_jax(
+    d: jnp.ndarray,
+    name: str,
+    params: dict,
+    radius: float | None = None,
+) -> jnp.ndarray:
+    """JAX kernel dispatcher (currently only supports gaussian)."""
+    if name != "gaussian":
+        raise NotImplementedError(
+            "apply_kernel_jax currently supports only kernel='gaussian'."
+        )
+
+    sigma = params.get("sigma", 2.0)
+    out = gaussian_kernel_jax(d, sigma)
+    if radius is not None:
+        # Hard cutoff: not differentiable w.r.t radius, but OK for now.
+        out = jnp.where((d <= radius) & (d > 0), out, 0.0)
+    return out

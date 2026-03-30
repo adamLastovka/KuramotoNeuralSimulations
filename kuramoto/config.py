@@ -20,12 +20,30 @@ class GridConfig:
 
 
 @dataclass
+class KernelComponentConfig:
+    kernel: str = "gaussian"
+    base_strength: float = 1.0
+    radius: float | None = None
+    kernel_params: dict | None = None
+    # Mask spec: recommended keys:
+    # - target_groups: list[int]
+    # - source_groups: list[int]
+    # This yields mask[i,j] = 1 iff group_ids[i] in target_groups and group_ids[j] in source_groups.
+    apply_to: dict | None = None
+
+
+@dataclass
 class CouplingConfig:
     kernel: str = "gaussian"
     base_strength: float = 1.0
     radius: float | None = 5.0
     kernel_params: dict | None = None
     mode: str = "spatial"
+    # Heterogeneous coupling (optional):
+    components: list[KernelComponentConfig] | None = None
+    # Group membership per node, used to build pairwise masks for heterogeneous components.
+    # Length must equal grid.n_total.
+    group_ids: list[int] | None = None
 
 
 @dataclass
@@ -91,12 +109,33 @@ def load_config(path: str | Path) -> SimulationConfig:
     )
 
     raw_coupling = data.get("coupling", {})
+    raw_components = raw_coupling.get("components")
+    raw_group_ids = raw_coupling.get("group_ids")
+
+    components = None
+    if raw_components is not None:
+        if not isinstance(raw_components, list):
+            raise ValueError("coupling.components must be a list")
+        components = []
+        for c in raw_components:
+            components.append(
+                KernelComponentConfig(
+                    kernel=str(c.get("kernel", "gaussian")),
+                    base_strength=float(c.get("base_strength", 1.0)),
+                    radius=c.get("radius"),
+                    kernel_params=dict(c.get("kernel_params", {}) or {}),
+                    apply_to=dict(c.get("apply_to", {}) or {}),
+                )
+            )
+
     coupling = CouplingConfig(
         kernel=str(raw_coupling.get("kernel", "gaussian")),
         base_strength=float(raw_coupling.get("base_strength", 1.0)),
         radius=raw_coupling.get("radius"),
         kernel_params=dict(raw_coupling.get("kernel_params", {})),
         mode=str(raw_coupling.get("mode", "spatial")),
+        components=components,
+        group_ids=list(raw_group_ids) if raw_group_ids is not None else None,
     )
 
     raw_neurons = data.get("neurons", {})
@@ -155,6 +194,8 @@ def build_simulation(
         kernel_params=cc.kernel_params,
         radius=cc.radius,
         mode=cc.mode,
+        components=cc.components,
+        group_ids=cc.group_ids,
     )
 
     omega0 = jnp.array(get_distribution(rng, grid.n_total, config.initial_omega))

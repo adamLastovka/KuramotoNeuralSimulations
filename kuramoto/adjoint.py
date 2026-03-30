@@ -35,10 +35,7 @@ def mean_order_parameter(
     return jnp.mean(Rs)
 
 
-# ---------------------------------------------------------------------------
-# Gradient helpers (convenience wrappers around jax.grad)
-# ---------------------------------------------------------------------------
-
+# --- Adjoint functions ---
 def grads_final_R(
     params: KuramotoParams,
     theta0: jnp.ndarray,
