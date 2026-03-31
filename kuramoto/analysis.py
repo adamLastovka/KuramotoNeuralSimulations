@@ -33,6 +33,30 @@ def order_parameter_jax(theta: jnp.ndarray) -> jnp.ndarray:
     sin_mean = jnp.mean(jnp.sin(theta))
     return jnp.sqrt(cos_mean ** 2 + sin_mean ** 2)
 
+
+def compute_effective_coupling(theta: jnp.ndarray, K: jnp.ndarray) -> jnp.ndarray:
+    """Compute the effective coupling matrix. K_eff_ij = K_ij * cos(theta_j - theta_i)
+    Args:
+        theta: Phase angles at a single time step. [N,]
+        K: Coupling matrix. [N,N]
+    Returns:
+        Effective coupling matrix. [N,N]
+    """
+    delta = theta[None, :] - theta[:, None]  # shape (N, N)
+    return K * jnp.cos(delta)
+
+def avg_effective_coupling(theta_list: jnp.ndarray, K: jnp.ndarray) -> jnp.ndarray:
+    """Compute the time averaged effective coupling matrix. K_eff_ij = K_ij * cos(theta_j - theta_i)
+    Args:
+        theta_list: Array of phase angles. [T,N]
+        K: Coupling matrix. [N,N]
+    Returns:
+        Time averaged effective coupling matrix. [N,N]
+    """
+    delta = theta_list[:, None, :] - theta_list[:, :, None]  # shape (T, N, N)
+    K_eff = K * jnp.cos(delta)
+    return jnp.mean(K_eff, axis=0)
+
 def local_order(
     theta: np.ndarray,
     grid: CorticalGrid,
