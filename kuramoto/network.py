@@ -42,6 +42,59 @@ def create_cortical_graph(source: CouplingMatrix | jnp.ndarray | Simulation, ome
 
     return graph
 
+# --- Metrics ---
+def get_degree(graph: nx.Graph) -> np.ndarray:
+    """Get the degrees of all nodes in the graph.
+    Args:
+        graph: NetworkX graph.
+    Returns:
+        Degree vector. (N,) np.ndarray
+    """
+    return np.array([graph.degree(i) for i in graph.nodes()])
+
+def get_deg_centrality(graph: nx.Graph) -> np.ndarray:
+    """Get the degree centrality of all nodes in the graph.
+    Args:
+        graph: NetworkX graph.
+    Returns:
+        Degree centrality. (N,) np.ndarray
+    """
+    dc = nx.degree_centrality(graph)
+    return np.fromiter(dc.values(), dtype=float)
+
+def get_closeness_centrality(graph: nx.Graph) -> np.ndarray:
+    """Compute the closeness centrality of a graph.
+    Args:
+        graph: NetworkX graph.
+    Returns:
+        Closeness centrality. (N,) np.ndarray
+    """
+    cc = nx.closeness_centrality(graph)
+    return np.fromiter(cc.values(), dtype=float)
+    
+
+def get_betweenness_centrality(graph: nx.Graph) -> np.ndarray:
+    """Compute the betweenness centrality of a graph.
+    Args:
+        graph: NetworkX graph.
+    Returns:
+        Betweenness centrality. (N,) np.ndarray
+    """
+    bc = nx.betweenness_centrality(graph)
+    return np.fromiter(bc.values(), dtype=float)
+
+def get_eigenvector_centrality(graph: nx.Graph) -> np.ndarray:
+    """Compute the eigenvector centrality of a graph.
+    Args:
+        graph: NetworkX graph.
+    Returns:
+        Eigenvector centrality. (N,) np.ndarray
+    """
+    ec = nx.eigenvector_centrality(graph, weight="weight")
+    return np.fromiter(ec.values(), dtype=float)
+
+
+# --- Visualization ---
 def plot_cortical_graph(graph: nx.Graph,layout: str = "spring", ax: plt.Axes | None = None) -> None:
     """Plot a cortical graph.
     Args:
