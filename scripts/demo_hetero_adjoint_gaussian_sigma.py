@@ -66,34 +66,39 @@ def main():
                 base_strength=1.0,
                 kernel_params={"sigma": sigma_00},
                 radius=4.0,
-                apply_to={"target_groups": [0], "source_groups": [0]},
+                node_groups=[0],
+                edge_mode="within",
             ),
             KernelComponentConfig(
                 kernel="gaussian",
                 base_strength=0.8,
                 kernel_params={"sigma": 2.5},
                 radius=4.0,
-                apply_to={"target_groups": [1], "source_groups": [1]},
+                node_groups=[1],
+                edge_mode="within",
             ),
             KernelComponentConfig(
                 kernel="gaussian",
                 base_strength=0.4,
                 kernel_params={"sigma": 2.0},
                 radius=4.0,
-                apply_to={"target_groups": [0], "source_groups": [1]},
+                node_groups=[1],
+                edge_mode="custom",
+                to_node_groups=[0],
             ),
             KernelComponentConfig(
                 kernel="gaussian",
                 base_strength=0.4,
                 kernel_params={"sigma": 2.0},
                 radius=4.0,
-                apply_to={"target_groups": [1], "source_groups": [0]},
+                node_groups=[0],
+                edge_mode="custom",
+                to_node_groups=[1],
             ),
         ]
 
         # Construct a coupling matrix inside the objective so sigma affects K and gradients.
         from kuramoto.coupling import CouplingMatrix
-        from kuramoto.grid import CorticalGrid
 
         grid = sim.grid
         coupling = CouplingMatrix(
@@ -128,28 +133,34 @@ def main():
                         base_strength=1.0,
                         kernel_params={"sigma": float(sigma0)},
                         radius=4.0,
-                        apply_to={"target_groups": [0], "source_groups": [0]},
+                        node_groups=[0],
+                        edge_mode="within",
                     ),
                     KernelComponentConfig(
                         kernel="gaussian",
                         base_strength=0.8,
                         kernel_params={"sigma": 2.5},
                         radius=4.0,
-                        apply_to={"target_groups": [1], "source_groups": [1]},
+                        node_groups=[1],
+                        edge_mode="within",
                     ),
                     KernelComponentConfig(
                         kernel="gaussian",
                         base_strength=0.4,
                         kernel_params={"sigma": 2.0},
                         radius=4.0,
-                        apply_to={"target_groups": [0], "source_groups": [1]},
+                        node_groups=[1],
+                        edge_mode="custom",
+                        to_node_groups=[0],
                     ),
                     KernelComponentConfig(
                         kernel="gaussian",
                         base_strength=0.4,
                         kernel_params={"sigma": 2.0},
                         radius=4.0,
-                        apply_to={"target_groups": [1], "source_groups": [0]},
+                        node_groups=[0],
+                        edge_mode="custom",
+                        to_node_groups=[1],
                     ),
                 ],
                 group_ids=group_ids,

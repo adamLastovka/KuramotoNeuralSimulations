@@ -158,15 +158,30 @@ def apply_kernel_jax(
     params: dict,
     radius: float | None = None,
 ) -> jnp.ndarray:
-    """JAX kernel dispatcher (currently only supports gaussian)."""
+    """JAX kernel dispatcher.
+
+    Notes
+    - For `name="gaussian"`, diagonal entries are forced to 0 (matching the
+      existing spatial coupling behavior).
+    - For `name="constant"`, returns ones everywhere (diagonal included),
+      and `radius` is ignored.
+    """
+    if name == "constant":
+        return jnp.ones_like(d, dtype=jnp.float32)
+
     if name != "gaussian":
         raise NotImplementedError(
-            "apply_kernel_jax currently supports only kernel='gaussian'."
+            "apply_kernel_jax currently supports kernel='gaussian' and kernel='constant'."
         )
 
     sigma = params.get("sigma", 2.0)
     out = gaussian_kernel_jax(d, sigma)
+
     if radius is not None:
         # Hard cutoff: not differentiable w.r.t radius, but OK for now.
         out = jnp.where((d <= radius) & (d > 0), out, 0.0)
-    return out
+    else:
+        # Spatial semantics: exclude self-coupling.
+        out = jnp.where(d > 0, out, 0.0)
+
+    return out.astype(jnp.float32)

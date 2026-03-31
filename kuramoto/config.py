@@ -25,11 +25,24 @@ class KernelComponentConfig:
     base_strength: float = 1.0
     radius: float | None = None
     kernel_params: dict | None = None
-    # Mask spec: recommended keys:
-    # - target_groups: list[int]
-    # - source_groups: list[int]
-    # This yields mask[i,j] = 1 iff group_ids[i] in target_groups and group_ids[j] in source_groups.
-    apply_to: dict | None = None
+    # Node selection/grouping for directed edge masks.
+    #
+    # Interpretation of directed coupling in this codebase:
+    #   K[i,j] = strength * weight(i,j)  corresponds to oscillator j -> oscillator i.
+    #
+    # For each component, we build an edge mask M[i,j] from:
+    # - `node_groups`: groups that the component "applies to"
+    # - `edge_mode`: how `node_groups` maps onto directed edges
+    # - optional `to_node_groups` for `edge_mode="custom"`
+    node_groups: list[int] | None = None
+    # Allowed: within/outgoing/incoming/custom
+    # - within: receiver and sender are both in node_groups
+    # - outgoing: sender (j) in node_groups, receiver (i) is any node
+    # - incoming: receiver (i) in node_groups, sender (j) is any node
+    # - custom: sender in node_groups, receiver in to_node_groups
+    edge_mode: str = "outgoing"
+    # Receiver groups used only for edge_mode="custom".
+    to_node_groups: list[int] | None = None
 
 
 @dataclass
@@ -124,7 +137,13 @@ def load_config(path: str | Path) -> SimulationConfig:
                     base_strength=float(c.get("base_strength", 1.0)),
                     radius=c.get("radius"),
                     kernel_params=dict(c.get("kernel_params", {}) or {}),
-                    apply_to=dict(c.get("apply_to", {}) or {}),
+                    node_groups=list(c["node_groups"])
+                    if c.get("node_groups") is not None
+                    else None,
+                    edge_mode=str(c.get("edge_mode", "outgoing")),
+                    to_node_groups=list(c["to_node_groups"])
+                    if c.get("to_node_groups") is not None
+                    else None,
                 )
             )
 
