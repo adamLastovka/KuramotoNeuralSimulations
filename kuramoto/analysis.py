@@ -33,6 +33,33 @@ def order_parameter_jax(theta: jnp.ndarray) -> jnp.ndarray:
     sin_mean = jnp.mean(jnp.sin(theta))
     return jnp.sqrt(cos_mean ** 2 + sin_mean ** 2)
 
+def functional_connectivity(theta: jnp.ndarray,dt: float) -> jnp.ndarray:
+    """Functional connectivity matrix in JAX.
+    C_ij = 1/dt |mean(exp(i*(theta_i - theta_j)))| (measure of phase locking)
+    Args:
+        theta: Phase angles over time [T,N] numpy or jnp array
+        dt: Time step
+    Returns:
+        Functional connectivity matrix. [N,N]
+    """
+    return jnp.abs(jnp.mean(jnp.exp(1j * (theta[:, None, :] - theta[:, :, None])), axis=0))
+
+def R_link(theta: jnp.ndarray | np.ndarray) -> jnp.ndarray:
+    """ Pairwise phase locking measure as defined in Schmidt et al. 2015.1/N(N-1) * sum C_ij. Where C_ij is the functional connectivity matrix.
+    Args:
+        theta: Phase angles [N,] or [T,N] numpy or jnp ar:ray
+    Returns:
+        Pairwise phase locking measure. [1] or [T,1]
+    """
+    if isinstance(theta, (np.ndarray, jnp.ndarray)):
+        if theta.ndim == 1:
+            return 1 / (theta.shape[0] * (theta.shape[0] - 1)) * jnp.sum(functional_connectivity(theta))
+        elif theta.ndim == 2:
+            return 1 / (theta[0].shape[0] * (theta[0].shape[0] - 1)) * jnp.sum(functional_connectivity(theta), axis=0)
+        else:
+            raise ValueError(f"Expected theta.ndim == 1 or 2, got {theta.ndim}")
+    else:
+        raise ValueError(f"Expected theta to be a numpy or jnp array, got {type(theta)}")
 
 def compute_effective_coupling(theta: jnp.ndarray, K: jnp.ndarray) -> jnp.ndarray:
     """Compute the effective coupling matrix. K_eff_ij = K_ij * cos(theta_j - theta_i)

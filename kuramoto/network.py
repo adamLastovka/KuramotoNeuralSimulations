@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize, TwoSlopeNorm
 
 
 def create_cortical_graph(source: CouplingMatrix | jnp.ndarray | Simulation, omega: jnp.ndarray | None = None) -> nx.Graph:
@@ -152,3 +153,44 @@ def plot_cortical_graph(graph: nx.Graph,layout: str = "spring", ax: plt.Axes | N
 
     # nx.draw(graph, pos=pos, with_labels=True, ax=ax)
     return fig, ax
+
+def plot_graph_metrics(G: nx.Graph, grid_shape: tuple[int, int], title: str = "Network Metrics"):
+    deg_cent = get_deg_centrality(G)
+    closeness = get_closeness_centrality(G)
+    betweenness = get_betweenness_centrality(G)
+    eigenvector = get_eigenvector_centrality(G)
+
+    if np.max(deg_cent) - np.min(deg_cent) < 0.001: # uniform case
+        norm=Normalize(vmin=0,vmax=1)
+    else:
+        norm=Normalize(vmin=0,vmax=np.max(deg_cent))
+    fig,ax = plt.subplots(1,4,figsize=(12,3),constrained_layout=True)
+    im = ax[0].imshow(deg_cent.reshape(grid_shape),norm=norm)
+    ax[0].set_title("Degree Centrality")
+    fig.colorbar(im,ax=ax[0],fraction=0.046, pad=0.04)
+
+    if np.max(closeness) - np.min(closeness) < 0.001: # uniform case
+        norm=Normalize(vmin=0,vmax=1)
+    else:
+        norm=Normalize(vmin=0,vmax=np.max(closeness))
+    im = ax[1].imshow(closeness.reshape(grid_shape),norm=norm)
+    ax[1].set_title("Closeness Centrality")
+    fig.colorbar(im,ax=ax[1],fraction=0.046, pad=0.04, norm=norm)
+
+    if np.max(betweenness) - np.min(betweenness) < 0.001: # uniform case
+        norm=Normalize(vmin=0,vmax=1)
+    else:
+        norm=Normalize(vmin=0,vmax=np.max(betweenness)) # highlight 'rank'
+    im = ax[2].imshow(betweenness.reshape(grid_shape),norm=norm)
+    ax[2].set_title("Betweenness Centrality")
+    fig.colorbar(im,ax=ax[2],fraction=0.046, pad=0.04, norm=norm)
+
+    if np.max(eigenvector) - np.min(eigenvector) < 0.001: # uniform case
+        norm=Normalize(vmin=0,vmax=1) # show value
+    else:
+        norm=Normalize(vmin=0,vmax=np.max(eigenvector)) # highlight 'rank'
+    im = ax[3].imshow(eigenvector.reshape(grid_shape),norm=norm)
+    ax[3].set_title("Eigenvector Centrality")
+    fig.colorbar(im,ax=ax[3],fraction=0.046, pad=0.04)
+
+    fig.suptitle(title)
