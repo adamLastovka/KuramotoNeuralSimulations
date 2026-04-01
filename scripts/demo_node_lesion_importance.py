@@ -80,7 +80,7 @@ def main():
     ts = jnp.arange(t0 + dt, t1 + dt / 2, dt)
     ts = ts[ts <= t1]
 
-    N = int(sim.grid.n_total)
+    N = int(sim.grid.N)
     alpha0 = jnp.zeros((N,), dtype=sim.params.K.dtype)
 
     # JIT wrappers

@@ -171,6 +171,23 @@ def plot_cortical_graph(graph: nx.Graph,layout: str = "spring", ax: plt.Axes | N
     # nx.draw(graph, pos=pos, with_labels=True, ax=ax)
     return fig, ax
 
+def plot_metric(metric: np.ndarray, grid_shape: tuple[int, int], title: str = "Metric", ax: plt.Axes | None = None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 5))
+    else:
+        fig = ax.get_figure()
+
+    if np.max(metric) - np.min(metric) < 0.001: # uniform case
+        norm=Normalize(vmin=0,vmax=1)
+    else:
+        norm=Normalize(vmin=0,vmax=np.max(metric))
+
+    im = ax.imshow(metric.reshape(grid_shape),norm=norm)
+    ax.set_title(title)
+    fig.colorbar(im,ax=ax,fraction=0.046, pad=0.04, norm=norm)
+
+    return fig, ax
+
 def plot_graph_metrics(metrics: dict[str, np.ndarray] | None = None, G: nx.Graph | None = None, grid_shape: tuple[int, int]=None, title: str = "Network Metrics"):
     if metrics is None and G is None:
         raise ValueError("Either metrics or G must be provided")

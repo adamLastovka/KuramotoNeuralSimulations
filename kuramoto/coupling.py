@@ -57,7 +57,7 @@ class CouplingMatrix:
 
     def _expand_legacy_mode_to_components(self) -> list[dict]: # NOTE: Temporary - remove evenually
         """Expand `mode`/legacy fields into the component-list representation."""
-        n = self.grid.n_total
+        n = self.grid.N
         if self.mode == "uniform":
             # Match previous behavior: include diagonal; all entries equal base_strength/n.
             return [
@@ -96,7 +96,7 @@ class CouplingMatrix:
 
     def _build_from_components(self, components: list[object]) -> jnp.ndarray:
         """Build heterogeneous/directed coupling by summing masked kernel components."""
-        n = self.grid.n_total
+        n = self.grid.N
 
         # Distances are constants w.r.t. kernel params; keep them in JAX once.
         dist_np, dr_np, dc_np = self.grid.pairwise_distances()
@@ -108,7 +108,7 @@ class CouplingMatrix:
             group_ids_np = np.asarray(self.group_ids, dtype=int)
             if group_ids_np.shape[0] != n:
                 raise ValueError(
-                    f"group_ids length must equal n_total={n}, got {group_ids_np.shape[0]}"
+                    f"group_ids length must equal N={n}, got {group_ids_np.shape[0]}"
                 )
 
         K = jnp.zeros((n, n), dtype=jnp.float32)
@@ -224,20 +224,20 @@ def apply_node_lesions(K: jnp.ndarray, alpha: jnp.ndarray) -> jnp.ndarray:
     return (s[:, None] * K) * s[None, :]
 
 # --- Visualization utilities ---
-def plot_lesioned_coupling(alpha: jnp.ndarray, K_orig: jnp.ndarray, K_lesioned: jnp.ndarray, title: str = "Lesioned coupling matrix") -> None:
+def plot_lesioned_coupling(alpha: jnp.ndarray, K_base: jnp.ndarray, K_lesioned: jnp.ndarray, grid_shape: tuple[int, int], title: str = "Lesioned coupling matrix") -> None:
     """Visualize the lesioned coupling matrix.
 
     alpha: lesion mask
-    K_orig: original coupling matrix
+    K_base: original coupling matrix
     K_lesioned: lesioned coupling matrix
     """
-    K0 = np.asarray(K_orig)   # or K_base — unlesioned matrix
+    K0 = np.asarray(K_base)
     K1 = np.asarray(K_lesioned)
     removed = np.clip(K0 - K1, 0, None)  # only drops where lesion zeros weight
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), constrained_layout=True)
 
-    im_a = axes[0].imshow(alpha, aspect="equal", cmap="Reds", vmin=0, vmax=1)
+    im_a = axes[0].imshow(alpha.reshape(grid_shape), aspect="equal", cmap="Reds", vmin=0, vmax=1)
     axes[0].set_title("Leison Mask")
     axes[0].set_xlabel("j")
     axes[0].set_ylabel("i")

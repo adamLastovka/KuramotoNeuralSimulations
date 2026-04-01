@@ -92,7 +92,7 @@ def main():
     Rf, _ = order_parameter(results["theta"][-1])
 
     print("=== Heterogeneous coupling demo ===")
-    print(f"N={sim.grid.n_total}, grid={grid_shape}, groups={{0,1}}")
+    print(f"N={sim.grid.N}, grid={grid_shape}, groups={{0,1}}")
     print(f"R(t0)={R0:.4f}, R(tf)={Rf:.4f}")
 
     K = np.asarray(sim.params.K)

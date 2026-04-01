@@ -55,7 +55,7 @@ class CouplingConfig:
     # Heterogeneous coupling (optional):
     components: list[KernelComponentConfig] | None = None
     # Group membership per node, used to build pairwise masks for heterogeneous components.
-    # Length must equal grid.n_total.
+    # Length must equal grid.N.
     group_ids: list[int] | None = None
 
 
@@ -217,8 +217,8 @@ def build_simulation(
         group_ids=cc.group_ids,
     )
 
-    omega0 = jnp.array(get_distribution(rng, grid.n_total, config.initial_omega))
-    theta0 = jnp.array(get_distribution(rng, grid.n_total, config.initial_theta))
+    omega0 = jnp.array(get_distribution(rng, grid.N, config.initial_omega))
+    theta0 = jnp.array(get_distribution(rng, grid.N, config.initial_theta))
 
     return Simulation(
         grid=grid,

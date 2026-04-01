@@ -51,7 +51,7 @@ def main():
     grads_mean_jit = jax.jit(grads_mean_R)
 
     print("=== Adjoint demo: spatial coupling ===")
-    print(f"N = {sim.grid.n_total} ({cfg.grid.shape[0]}x{cfg.grid.shape[1]})")
+    print(f"N = {sim.grid.N} ({cfg.grid.shape[0]}x{cfg.grid.shape[1]})")
     print(f"Steps saved: {len(ts)}   dt={dt}   T={t1}")
 
     # Warmup compile

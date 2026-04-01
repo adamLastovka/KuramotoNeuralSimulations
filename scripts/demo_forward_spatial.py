@@ -37,7 +37,7 @@ def main():
     Rf, _ = order_parameter(results["theta"][-1])
 
     print("=== Forward demo: spatial coupling ===")
-    print(f"N = {sim.grid.n_total} ({cfg.grid.shape[0]}x{cfg.grid.shape[1]})")
+    print(f"N = {sim.grid.N} ({cfg.grid.shape[0]}x{cfg.grid.shape[1]})")
     print(f"Steps: {results['ts'].shape[0]}   dt={0.05}   T={results['ts'][-1]:.3f}")
     print(f"R(t0)={R0:.4f}   R(tf)={Rf:.4f}")
 

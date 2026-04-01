@@ -82,7 +82,7 @@ def run_benchmark(
     return {
         "elapsed_s": elapsed,
         "n_steps": int(results["ts"].shape[0]),
-        "n_oscillators": sim.grid.n_total,
+        "n_oscillators": sim.grid.N,
     }
 
 
@@ -127,7 +127,7 @@ def run_adjoint_benchmark(
         "T_compile": T_compile,
         "T_run": T_run,
         "n_steps": int(ts.shape[0]),
-        "n_oscillators": sim.grid.n_total,
+        "n_oscillators": sim.grid.N,
     }
 
 
