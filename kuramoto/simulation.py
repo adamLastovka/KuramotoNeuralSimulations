@@ -6,7 +6,7 @@ import numpy as np
 import jax.numpy as jnp
 import diffrax
 
-from .coupling import CouplingMatrix
+from .coupling import CouplingMatrix, apply_node_lesions
 from .grid import CorticalGrid
 
 class KuramotoParams(NamedTuple):
@@ -134,3 +134,18 @@ class Simulation:
             "K": K_np,
         }
         return self.results
+
+    def run_with_lesions(self, alpha: jnp.ndarray, t_span: tuple[float, float], dt: float, rng=None) -> dict[str, np.ndarray]:
+        K_orig = self.coupling.K # save original coupling matrix
+
+        K_lesioned = apply_node_lesions(K_orig, alpha) # Get leasioned coupling matrix
+        
+        self.coupling.K = K_lesioned
+        self.params = KuramotoParams(omega=self.omega0, K=K_lesioned)
+        
+        results = self.run(t_span, dt, rng)
+        
+        # Restore original coupling matrix
+        self.coupling.K = K_orig
+        self.params = KuramotoParams(omega=self.omega0, K=K_orig)
+        return results

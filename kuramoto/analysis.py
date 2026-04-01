@@ -140,7 +140,6 @@ def coupling_tension(
     coupling = np.cos(theta) * (K @ np.sin(src)) - np.sin(theta) * (K @ np.cos(src))
     return omega - coupling
 
-
 # ---------------------------------------------------------------------------
 # Phase-field gradient (traveling-wave / spatial structure) - deprecated for now
 # ---------------------------------------------------------------------------

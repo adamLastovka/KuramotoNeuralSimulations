@@ -3,25 +3,13 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize, CenteredNorm, TwoSlopeNorm
+
 from .analysis import order_parameter_jax
 from .simulation import KuramotoParams, solve_forward
-
-
-# --- Lesion parametrization utilities ---
-def apply_node_lesions(K: jnp.ndarray, alpha: jnp.ndarray) -> jnp.ndarray:
-    """Apply continuous node lesions to a coupling matrix.
-
-    alpha_i in [0, 1] scales all edges incident to node i:
-      K[i, j] -> (1 - alpha_i) * K[i, j]
-      K[j, i] -> (1 - alpha_i) * K[j, i]
-
-    Vectorized form implements row then column scaling, yielding:
-      K_eff[i, j] = (1 - alpha_i) * (1 - alpha_j) * K[i, j]
-    """
-    alpha = jnp.asarray(alpha)
-    s = 1.0 - alpha  # (N,)
-    return (s[:, None] * K) * s[None, :]
-
+from .coupling import apply_node_lesions
 
 # --- Objectives ---
 def final_order_parameter(
@@ -140,4 +128,53 @@ def node_importance_from_gradK(K: jnp.ndarray, dJ_dK: jnp.ndarray) -> jnp.ndarra
     dJ_dK = jnp.asarray(dJ_dK)
     term_out = jnp.sum(dJ_dK * K, axis=1)  # sum_j dJ/dK[i,j]*K[i,j]
     term_in = jnp.sum(dJ_dK * K, axis=0)   # sum_j dJ/dK[j,i]*K[j,i]
-    return jnp.abs(term_out + term_in)
+    return term_out + term_in # NOTE: leave signed for now
+
+# --- Visualization ---
+def get_norm_cmap(array: jnp.ndarray) -> tuple[Normalize, str]:
+    if np.any(array < 0) and np.any(array > 0):
+        norm = TwoSlopeNorm(vmin=np.min(array), vcenter=0.0, vmax=np.max(array))
+        cmap = "bwr"
+    elif np.all(array >= 0):
+        norm = Normalize(vmin=0, vmax=np.max(array))
+        cmap = "Reds"
+    else: # np.all(array <= 0)
+        norm = Normalize(vmin=np.min(array), vmax=0.0)
+        cmap = "Blues"
+    return norm, cmap
+
+def plot_basic_grads(g: KuramotoParams, grid_shape: tuple[int, int], title: str = "Basic gradients") -> None:
+    dR_dK = np.asarray(g.K)
+    dR_domega = np.asarray(g.omega)
+    dR_domega_2d = dR_domega.reshape(grid_shape)
+
+    fig, axs = plt.subplots(1,2,figsize=(10,5))
+    axs = axs.ravel()
+
+    norm, cmap = get_norm_cmap(dR_dK)
+
+    im = axs[0].imshow(dR_dK, cmap=cmap, norm=norm)
+    axs[0].set_title("dJ/dK")
+    fig.colorbar(im,ax=axs[0],fraction=0.046, pad=0.04)
+
+
+    norm, cmap = get_norm_cmap(dR_domega_2d)
+
+    im = axs[1].imshow(dR_domega_2d, cmap=cmap, norm=norm)
+    axs[1].set_title("dJ/domega0")
+    fig.colorbar(im,ax=axs[1],fraction=0.046, pad=0.04)  
+    fig.suptitle(title)
+
+def plot_advanced_grads(dR_dalpha: jnp.ndarray, I_node: jnp.ndarray, grid_shape: tuple[int, int], title: str = "Node importance") -> None:
+    fig,ax = plt.subplots(1,2,figsize=(10,5),constrained_layout=True)
+    
+    norm, cmap = get_norm_cmap(dR_dalpha)
+    im = ax[0].imshow(dR_dalpha.reshape(grid_shape), norm=norm, cmap=cmap)
+    ax[0].set_title("dJ/dalpha")
+    fig.colorbar(im,ax=ax[0],fraction=0.046, pad=0.04, norm=norm)
+
+
+    norm, cmap = get_norm_cmap(I_node)
+    im = ax[1].imshow(I_node.reshape(grid_shape), cmap=cmap, norm=norm)
+    ax[1].set_title("I_node")
+    fig.colorbar(im,ax=ax[1],fraction=0.046, pad=0.04, norm=norm)

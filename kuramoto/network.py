@@ -94,6 +94,23 @@ def get_eigenvector_centrality(graph: nx.Graph) -> np.ndarray:
     ec = nx.eigenvector_centrality(graph, weight="weight")
     return np.fromiter(ec.values(), dtype=float)
 
+def get_graph_metrics(G: nx.Graph) -> dict[str, np.ndarray]:
+    """Get the graph metrics.
+    Args:
+        G: NetworkX graph.
+    Returns:
+        Dictionary of metrics.
+        - deg_cent: Degree centrality. (N,) np.ndarray
+        - closeness: Closeness centrality. (N,) np.ndarray
+        - betweenness: Betweenness centrality. (N,) np.ndarray
+        - eigenvector: Eigenvector centrality. (N,) np.ndarray
+    """
+    return {
+        "deg_cent": get_deg_centrality(G),
+        "closeness": get_closeness_centrality(G),
+        "betweenness": get_betweenness_centrality(G),
+        "eigenvector": get_eigenvector_centrality(G),
+    }
 
 # --- Visualization ---
 def plot_cortical_graph(graph: nx.Graph,layout: str = "spring", ax: plt.Axes | None = None) -> None:
@@ -154,43 +171,27 @@ def plot_cortical_graph(graph: nx.Graph,layout: str = "spring", ax: plt.Axes | N
     # nx.draw(graph, pos=pos, with_labels=True, ax=ax)
     return fig, ax
 
-def plot_graph_metrics(G: nx.Graph, grid_shape: tuple[int, int], title: str = "Network Metrics"):
-    deg_cent = get_deg_centrality(G)
-    closeness = get_closeness_centrality(G)
-    betweenness = get_betweenness_centrality(G)
-    eigenvector = get_eigenvector_centrality(G)
-
-    if np.max(deg_cent) - np.min(deg_cent) < 0.001: # uniform case
-        norm=Normalize(vmin=0,vmax=1)
+def plot_graph_metrics(metrics: dict[str, np.ndarray] | None = None, G: nx.Graph | None = None, grid_shape: tuple[int, int]=None, title: str = "Network Metrics"):
+    if metrics is None and G is None:
+        raise ValueError("Either metrics or G must be provided")
+    elif G is not None:
+        metrics = get_graph_metrics(G)
     else:
-        norm=Normalize(vmin=0,vmax=np.max(deg_cent))
+        pass
+
+    if grid_shape is None:
+        raise ValueError("Grid shape must be provided")
+
     fig,ax = plt.subplots(1,4,figsize=(12,3),constrained_layout=True)
-    im = ax[0].imshow(deg_cent.reshape(grid_shape),norm=norm)
-    ax[0].set_title("Degree Centrality")
-    fig.colorbar(im,ax=ax[0],fraction=0.046, pad=0.04)
+    ax = ax.ravel()
 
-    if np.max(closeness) - np.min(closeness) < 0.001: # uniform case
-        norm=Normalize(vmin=0,vmax=1)
-    else:
-        norm=Normalize(vmin=0,vmax=np.max(closeness))
-    im = ax[1].imshow(closeness.reshape(grid_shape),norm=norm)
-    ax[1].set_title("Closeness Centrality")
-    fig.colorbar(im,ax=ax[1],fraction=0.046, pad=0.04, norm=norm)
-
-    if np.max(betweenness) - np.min(betweenness) < 0.001: # uniform case
-        norm=Normalize(vmin=0,vmax=1)
-    else:
-        norm=Normalize(vmin=0,vmax=np.max(betweenness)) # highlight 'rank'
-    im = ax[2].imshow(betweenness.reshape(grid_shape),norm=norm)
-    ax[2].set_title("Betweenness Centrality")
-    fig.colorbar(im,ax=ax[2],fraction=0.046, pad=0.04, norm=norm)
-
-    if np.max(eigenvector) - np.min(eigenvector) < 0.001: # uniform case
-        norm=Normalize(vmin=0,vmax=1) # show value
-    else:
-        norm=Normalize(vmin=0,vmax=np.max(eigenvector)) # highlight 'rank'
-    im = ax[3].imshow(eigenvector.reshape(grid_shape),norm=norm)
-    ax[3].set_title("Eigenvector Centrality")
-    fig.colorbar(im,ax=ax[3],fraction=0.046, pad=0.04)
-
+    titles = ["Degree Centrality", "Closeness Centrality", "Betweenness Centrality", "Eigenvector Centrality"]
+    for i, (metric, title_i) in enumerate(zip(metrics.values(), titles)):
+        if np.max(metric) - np.min(metric) < 0.001: # uniform case
+            norm=Normalize(vmin=0,vmax=1)
+        else:
+            norm=Normalize(vmin=0,vmax=np.max(metric))
+        im = ax[i].imshow(metric.reshape(grid_shape),norm=norm)
+        ax[i].set_title(title_i)
+        fig.colorbar(im,ax=ax[i],fraction=0.046, pad=0.04, norm=norm)
     fig.suptitle(title)

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 from .grid import CorticalGrid
 from .kernels import apply_kernel, apply_kernel_jax
@@ -206,3 +207,47 @@ class CouplingMatrix:
             K = K + jnp.asarray(strength, dtype=jnp.float32) * weights * mask
 
         return K
+
+# --- Lesion parametrization utilities ---
+def apply_node_lesions(K: jnp.ndarray, alpha: jnp.ndarray) -> jnp.ndarray:
+    """Apply continuous node lesions to a coupling matrix.
+
+    alpha_i in [0, 1] scales all edges incident to node i:
+      K[i, j] -> (1 - alpha_i) * K[i, j]
+      K[j, i] -> (1 - alpha_i) * K[j, i]
+
+    Vectorized form implements row then column scaling, yielding:
+      K_lesioned[i, j] = (1 - alpha_i) * (1 - alpha_j) * K[i, j]
+    """
+    alpha = jnp.asarray(alpha)
+    s = 1.0 - alpha  # (N,)
+    return (s[:, None] * K) * s[None, :]
+
+# --- Visualization utilities ---
+def plot_lesioned_coupling(alpha: jnp.ndarray, K_orig: jnp.ndarray, K_lesioned: jnp.ndarray, title: str = "Lesioned coupling matrix") -> None:
+    """Visualize the lesioned coupling matrix.
+
+    alpha: lesion mask
+    K_orig: original coupling matrix
+    K_lesioned: lesioned coupling matrix
+    """
+    K0 = np.asarray(K_orig)   # or K_base — unlesioned matrix
+    K1 = np.asarray(K_lesioned)
+    removed = np.clip(K0 - K1, 0, None)  # only drops where lesion zeros weight
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), constrained_layout=True)
+
+    im_a = axes[0].imshow(alpha, aspect="equal", cmap="Reds", vmin=0, vmax=1)
+    axes[0].set_title("Leison Mask")
+    axes[0].set_xlabel("j")
+    axes[0].set_ylabel("i")
+    fig.colorbar(im_a, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im_b = axes[1].imshow(removed, aspect="equal", cmap="magma")
+    axes[1].set_title("Removed coupling (K − K_lesioned)")
+    axes[1].set_xlabel("j")
+    axes[1].set_ylabel("i")
+    fig.colorbar(im_b, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.suptitle(title)
+
+    plt.show()
