@@ -224,7 +224,7 @@ def apply_node_lesions(K: jnp.ndarray, alpha: jnp.ndarray) -> jnp.ndarray:
     return (s[:, None] * K) * s[None, :]
 
 # --- Visualization utilities ---
-def plot_lesioned_coupling(alpha: jnp.ndarray, K_base: jnp.ndarray, K_lesioned: jnp.ndarray, grid_shape: tuple[int, int], title: str = "Lesioned coupling matrix") -> None:
+def plot_lesioned_coupling(alpha: jnp.ndarray, K_base: jnp.ndarray, K_lesioned: jnp.ndarray, grid_shape: tuple[int, int], title: str | None = None, axs: list[plt.Axes] | None = None) -> None:
     """Visualize the lesioned coupling matrix.
 
     alpha: lesion mask
@@ -235,19 +235,29 @@ def plot_lesioned_coupling(alpha: jnp.ndarray, K_base: jnp.ndarray, K_lesioned: 
     K1 = np.asarray(K_lesioned)
     removed = np.clip(K0 - K1, 0, None)  # only drops where lesion zeros weight
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), constrained_layout=True)
+    if axs is None:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5), constrained_layout=True)
+    else:
+        fig = axs[0].get_figure()
+        axes = axs.ravel()
 
     im_a = axes[0].imshow(alpha.reshape(grid_shape), aspect="equal", cmap="Reds", vmin=0, vmax=1)
-    axes[0].set_title("Leison Mask")
-    axes[0].set_xlabel("j")
-    axes[0].set_ylabel("i")
+    axes[0].set_title("Lesion Mask")
+    # axes[0].set_xlabel("j")
+    # axes[0].set_ylabel("i")
+    axes[0].set_xticks([])
+    axes[0].set_yticks([])
     fig.colorbar(im_a, ax=axes[0], fraction=0.046, pad=0.04)
 
     im_b = axes[1].imshow(removed, aspect="equal", cmap="magma")
-    axes[1].set_title("Removed coupling (K − K_lesioned)")
-    axes[1].set_xlabel("j")
-    axes[1].set_ylabel("i")
+    axes[1].set_title("Removed coupling (K - K_lesioned)")
+    # axes[1].set_xlabel("j")
+    # axes[1].set_ylabel("i")
+    axes[1].set_xticks([])
+    axes[1].set_yticks([])
     fig.colorbar(im_b, ax=axes[1], fraction=0.046, pad=0.04)
-    fig.suptitle(title)
+    
+    if title is not None:
+        fig.suptitle(title)
 
-    plt.show()
+    return fig, axes

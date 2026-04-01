@@ -11,6 +11,16 @@ from scipy.sparse import spmatrix
 
 from .grid import CorticalGrid
 
+def set_plot_settings():
+    plt.rcParams.update({
+        "font.size": 14,
+        "figure.titlesize": 20,
+        "axes.titlesize": 16,
+        "axes.labelsize": 14,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+    })
+
 
 def coupling_to_2d(
     K: spmatrix,

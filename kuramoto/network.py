@@ -183,12 +183,15 @@ def plot_metric(metric: np.ndarray, grid_shape: tuple[int, int], title: str = "M
         norm=Normalize(vmin=0,vmax=np.max(metric))
 
     im = ax.imshow(metric.reshape(grid_shape),norm=norm)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
     ax.set_title(title)
     fig.colorbar(im,ax=ax,fraction=0.046, pad=0.04, norm=norm)
 
     return fig, ax
 
-def plot_graph_metrics(metrics: dict[str, np.ndarray] | None = None, G: nx.Graph | None = None, grid_shape: tuple[int, int]=None, title: str = "Network Metrics"):
+def plot_graph_metrics(metrics: dict[str, np.ndarray] | None = None, G: nx.Graph | None = None, grid_shape: tuple[int, int]=None, title: str | None = None, axs: list[plt.Axes] | None = None):
     if metrics is None and G is None:
         raise ValueError("Either metrics or G must be provided")
     elif G is not None:
@@ -199,16 +202,17 @@ def plot_graph_metrics(metrics: dict[str, np.ndarray] | None = None, G: nx.Graph
     if grid_shape is None:
         raise ValueError("Grid shape must be provided")
 
-    fig,ax = plt.subplots(1,4,figsize=(12,3),constrained_layout=True)
-    ax = ax.ravel()
+    if axs is None:
+        fig,axs = plt.subplots(1,4,figsize=(12,3),constrained_layout=True)
+        axs = axs.ravel()
+    else:
+        fig = axs[0].get_figure()
 
     titles = ["Degree Centrality", "Closeness Centrality", "Betweenness Centrality", "Eigenvector Centrality"]
     for i, (metric, title_i) in enumerate(zip(metrics.values(), titles)):
-        if np.max(metric) - np.min(metric) < 0.001: # uniform case
-            norm=Normalize(vmin=0,vmax=1)
-        else:
-            norm=Normalize(vmin=0,vmax=np.max(metric))
-        im = ax[i].imshow(metric.reshape(grid_shape),norm=norm)
-        ax[i].set_title(title_i)
-        fig.colorbar(im,ax=ax[i],fraction=0.046, pad=0.04, norm=norm)
-    fig.suptitle(title)
+        plot_metric(metric, grid_shape, title_i, axs[i])
+    
+    if title is not None:
+        fig.suptitle(title)
+    
+    return fig, axs
