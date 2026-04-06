@@ -57,6 +57,7 @@ def plot_2d(
     title: str | None = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    cbar: bool = True,
     **kwargs: Any,
 ):
     if ax is None:

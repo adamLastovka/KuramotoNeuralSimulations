@@ -45,7 +45,7 @@ def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: fl
     results_lesioned = sim.run_with_lesions(alpha, (0, T_END), dt, rng=RNG) # run lesioned simulation
     return results_lesioned, alpha, apply_node_lesions(sim.coupling.K, alpha)
 
-def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.01, RNG: np.random.Generator = None, n_random_repeats: int = 10, lesion_fracs: np.ndarray = np.arange(0, 0.3, 0.02), lesion_strength: float = 1.0,) -> dict[str, float]:
+def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.01, RNG: np.random.Generator = None, n_random_repeats: int = 10, lesion_fracs: np.ndarray = np.arange(0, 0.3, 0.02), lesion_strength: float = 1.0,verbose: bool = True) -> dict[str, float]:
     """Evaluate metric scores for a given simulation.
     
     Args:
@@ -60,11 +60,13 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
         metric_scores: Metric scores
     """
     # Run base simulation
-    print("Running base simulation...")
+    if verbose:
+        print("Running base simulation...")
     res_base = sim.run((0, T_END), dt, rng=RNG)
     
     # Create graphs
-    print("Creating graphs...")
+    if verbose:
+        print("Creating graphs...")
     G = create_cortical_graph(sim)
 
     K_eff_avg = avg_effective_coupling(sim.results["theta"], sim.coupling.K)
@@ -74,15 +76,17 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
     G_C_avg = create_cortical_graph(C_avg, omega=sim.params.omega)
 
     # Graph metrics
-    print("Calculating graph metrics...")
+    if verbose:
+        print("Calculating graph metrics...")
     graph_metrics = get_graph_metrics(G)
     graph_metrics_eff = get_graph_metrics(G_eff)
     graph_metrics_C_avg = get_graph_metrics(G_C_avg)
 
     # Adjoint metrics
-    print("Calculating adjoint metrics...")
+    if verbose:
+        print("Calculating adjoint metrics...")
     t0, t1 = 0.0, T_END
-    ts = jnp.arange(t0, t1 + dt / 2, dt)
+    ts = jnp.arange(t0+dt, t1 + dt / 2, dt)
     ts = ts[ts <= t1]
 
     g = grads_final_R(sim.params, sim.theta0, t0=0.0, t1=T_END, dt=dt, ts=[T_END])
@@ -117,7 +121,8 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
     }
 
     # Run lesion study for each metric
-    print("Running lesion study for each metric...")
+    if verbose:
+        print("Running lesion study for each metric...")
     metric_scores = {}
     for metric_name, metric in metrics.items():
         print(f"Evaluating {metric_name}...")

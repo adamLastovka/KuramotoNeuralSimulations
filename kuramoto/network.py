@@ -91,8 +91,13 @@ def get_eigenvector_centrality(graph: nx.Graph) -> np.ndarray:
     Returns:
         Eigenvector centrality. (N,) np.ndarray
     """
-    ec = nx.eigenvector_centrality(graph, weight="weight")
-    return np.fromiter(ec.values(), dtype=float)
+    try:
+        ec = nx.eigenvector_centrality(graph, weight="weight")
+        ec = np.fromiter(ec.values(), dtype=float)
+    except nx.PowerIterationFailedConvergence:
+        print("Eigenvector centrality failed to converge, returning NaNs")
+        ec = np.full(graph.number_of_nodes(), np.nan)
+    return ec
 
 def get_graph_metrics(G: nx.Graph) -> dict[str, np.ndarray]:
     """Get the graph metrics.
