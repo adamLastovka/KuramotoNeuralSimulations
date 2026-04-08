@@ -9,7 +9,7 @@ from kuramoto.analysis import avg_effective_coupling, functional_connectivity
 from kuramoto.adjoint import grads_final_R, grads_mean_R, node_importance_from_gradK, grads_final_R_alpha, grads_mean_R_alpha
 from kuramoto.analysis import order_parameter
 
-def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: float, lesion_strength: float = 1.0, T_END: float = 10.0, dt: float = 0.01, RNG: np.random.Generator = None) -> None:
+def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: float, lesion_strength: float = 1.0, T_END: float = 10.0, dt: float = 0.01, SEED: int = 42) -> None:
     """Run a lesion study for a given metric and lesion fraction.
     
     Args:
@@ -26,6 +26,7 @@ def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: fl
         alpha: Lesion mask
     """
     N = sim.grid.N
+    RNG = np.random.default_rng(SEED)
     n_lesion = max(1, int(round(lesion_frac * N)))
     
     if isinstance(metric, str):
