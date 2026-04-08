@@ -7,7 +7,7 @@ import numpy as np
 import jax.numpy as jnp
 import yaml
 
-from .coupling import CouplingMatrix
+from .coupling import CouplingMatrix, closest_square_shape
 from .grid import CorticalGrid
 from .simulation import Simulation
 
@@ -57,6 +57,9 @@ class CouplingConfig:
     # Group membership per node, used to build pairwise masks for heterogeneous components.
     # Length must equal grid.N.
     group_ids: list[int] | None = None
+    # Preset coupling matrix (N, N).  When provided, kernel/mode/components are
+    # ignored and this matrix is used directly as K.
+    K_matrix: np.ndarray | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -196,6 +199,9 @@ def load_config(path: str | Path) -> SimulationConfig:
 
 
 # --- building simulation from config ---
+_GRID_DEFAULT_SHAPE = GridConfig().shape
+
+
 def build_simulation(
     config: SimulationConfig,
     rng: np.random.Generator | None = None,
@@ -203,19 +209,39 @@ def build_simulation(
     if rng is None:
         rng = np.random.default_rng(config.seed)
 
-    grid = CorticalGrid(shape=config.grid.shape, periodic_bc=config.grid.periodic)
-
     cc = config.coupling
-    coupling = CouplingMatrix(
-        grid=grid,
-        kernel=cc.kernel,
-        base_strength=cc.base_strength,
-        kernel_params=cc.kernel_params,
-        radius=cc.radius,
-        mode=cc.mode,
-        components=cc.components,
-        group_ids=cc.group_ids,
-    )
+
+    if cc.K_matrix is not None:
+        K_mat = np.asarray(cc.K_matrix)
+        if K_mat.ndim != 2 or K_mat.shape[0] != K_mat.shape[1]:
+            raise ValueError(
+                f"K_matrix must be a square 2-D array, got shape {K_mat.shape}"
+            )
+        N = K_mat.shape[0]
+
+        grid_shape = config.grid.shape
+        if grid_shape == _GRID_DEFAULT_SHAPE and grid_shape[0] * grid_shape[1] != N:
+            grid_shape = closest_square_shape(N)
+
+        grid = CorticalGrid(shape=grid_shape, periodic_bc=config.grid.periodic)
+        if grid.N != N:
+            raise ValueError(
+                f"grid.N={grid.N} (from shape {grid_shape}) does not match "
+                f"K_matrix size {N}"
+            )
+        coupling = CouplingMatrix(grid=grid, K_preset=K_mat, group_ids=cc.group_ids)
+    else:
+        grid = CorticalGrid(shape=config.grid.shape, periodic_bc=config.grid.periodic)
+        coupling = CouplingMatrix(
+            grid=grid,
+            kernel=cc.kernel,
+            base_strength=cc.base_strength,
+            kernel_params=cc.kernel_params,
+            radius=cc.radius,
+            mode=cc.mode,
+            components=cc.components,
+            group_ids=cc.group_ids,
+        )
 
     omega0 = jnp.array(get_distribution(rng, grid.N, config.initial_omega))
     theta0 = jnp.array(get_distribution(rng, grid.N, config.initial_theta))

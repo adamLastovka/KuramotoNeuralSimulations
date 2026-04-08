@@ -148,21 +148,33 @@ def plot_basic_grads(g: KuramotoParams, grid_shape: tuple[int, int], title: str 
     dR_domega = np.asarray(g.omega)
     dR_domega_2d = dR_domega.reshape(grid_shape)
 
-    fig, axs = plt.subplots(1,2,figsize=(10,5))
+    N_edges = dR_dK.shape[0]
+    fig, axs = plt.subplots(1,2,figsize=(12,5))
     axs = axs.ravel()
 
     norm, cmap = get_norm_cmap(dR_dK)
 
     im = axs[0].imshow(dR_dK, cmap=cmap, norm=norm)
     axs[0].set_title("dJ/dK")
+    if N_edges < 20:
+        axs[0].set_xticks(np.arange(0, N_edges, 1))
+        axs[0].set_yticks(np.arange(0, N_edges, 1))
+    elif N_edges < 100:
+        axs[0].set_xticks(np.arange(0, N_edges, 10))
+        axs[0].set_yticks(np.arange(0, N_edges, 10))
+    else:
+        axs[0].set_xticks(np.arange(0, N_edges, 20))
+        axs[0].set_yticks(np.arange(0, N_edges, 20))
+    axs[0].tick_params(axis='x', labelrotation=45)
     fig.colorbar(im,ax=axs[0],fraction=0.046, pad=0.04)
-
 
     norm, cmap = get_norm_cmap(dR_domega_2d)
 
     im = axs[1].imshow(dR_domega_2d, cmap=cmap, norm=norm)
     axs[1].set_title("dJ/domega0")
-    fig.colorbar(im,ax=axs[1],fraction=0.046, pad=0.04)  
+    axs[1].set_xticks(np.arange(0, dR_domega_2d.shape[1], 1))
+    axs[1].set_yticks(np.arange(0, dR_domega_2d.shape[0], 1))
+    axs[1].tick_params(axis='x', labelrotation=45) 
     fig.suptitle(title)
 
 def plot_advanced_grads(dR_dalpha: jnp.ndarray, I_node: jnp.ndarray, grid_shape: tuple[int, int], title: str = "Node importance") -> None:
@@ -171,10 +183,16 @@ def plot_advanced_grads(dR_dalpha: jnp.ndarray, I_node: jnp.ndarray, grid_shape:
     norm, cmap = get_norm_cmap(dR_dalpha)
     im = ax[0].imshow(dR_dalpha.reshape(grid_shape), norm=norm, cmap=cmap)
     ax[0].set_title("dJ/dalpha")
+    ax[0].set_xticks(np.arange(0, grid_shape[1], 1))
+    ax[0].set_yticks(np.arange(0, grid_shape[0], 1))
     fig.colorbar(im,ax=ax[0],fraction=0.046, pad=0.04, norm=norm)
 
 
     norm, cmap = get_norm_cmap(I_node)
     im = ax[1].imshow(I_node.reshape(grid_shape), cmap=cmap, norm=norm)
     ax[1].set_title("I_node")
+    ax[1].set_xticks(np.arange(0, grid_shape[1], 1))
+    ax[1].set_yticks(np.arange(0, grid_shape[0], 1))
     fig.colorbar(im,ax=ax[1],fraction=0.046, pad=0.04, norm=norm)
+
+    fig.suptitle(title)

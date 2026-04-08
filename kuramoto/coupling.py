@@ -12,6 +12,12 @@ from .kernels import apply_kernel, apply_kernel_jax
 if TYPE_CHECKING:
     from .config import KernelComponentConfig
 
+def closest_square_shape(N):
+    for nrows in range(int(np.ceil(np.sqrt(N))), 0, -1):
+        if N % nrows == 0:
+            ncols = N // nrows
+            return (nrows, ncols)
+    return (1, N)
 
 class CouplingMatrix:
     """Coupling weights K[i,j] = strength from oscillator j to oscillator i.
@@ -35,6 +41,7 @@ class CouplingMatrix:
         mode: str = "spatial",
         components: list[KernelComponentConfig] | None = None,
         group_ids: list[int] | None = None,
+        K_preset: np.ndarray | jnp.ndarray | None = None,
     ):
         self.grid = grid
         self.kernel_name = kernel
@@ -46,14 +53,21 @@ class CouplingMatrix:
         self.components = components
         self.group_ids = group_ids
 
-        if self.components is not None:
+        if K_preset is not None:
+            K_preset = jnp.asarray(K_preset, dtype=jnp.float32)
+            if K_preset.shape != (grid.N, grid.N):
+                raise ValueError(
+                    f"K_preset shape {K_preset.shape} does not match grid N={grid.N}; "
+                    f"expected ({grid.N}, {grid.N})"
+                )
+            self.K = K_preset
+        elif self.components is not None:
             if not self.components:
                 raise ValueError("components provided but empty.")
-            components_to_build = self.components
+            self.K = self._build_from_components(self.components)
         else:
             components_to_build = self._expand_legacy_mode_to_components()
-
-        self.K = self._build_from_components(components_to_build)
+            self.K = self._build_from_components(components_to_build)
 
     def _expand_legacy_mode_to_components(self) -> list[dict]: # NOTE: Temporary - remove evenually
         """Expand `mode`/legacy fields into the component-list representation."""
