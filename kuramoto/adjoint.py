@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, CenteredNorm, TwoSlopeNorm
 
 from .analysis import order_parameter_jax, r_link_jax
-from .simulation import KuramotoParams, solve_forward
+from .simulation import Simulation, KuramotoParams, solve_forward
 from .coupling import apply_node_lesions
 
 # --- Objectives ---
@@ -245,6 +245,118 @@ def node_importance_from_gradK(K: jnp.ndarray, dJ_dK: jnp.ndarray) -> jnp.ndarra
     term_in = jnp.sum(dJ_dK * K, axis=0)   # sum_j dJ/dK[j,i]*K[j,i]
     return term_out + term_in # NOTE: leave signed for now
 
+
+def get_adjoint_grads(
+    sim: Simulation,
+    *,
+    T_END: float,
+    dt: float,
+    n_ig_steps: int = 20,
+) -> dict[str, np.ndarray]:
+    """Compute linearized and integrated-gradient node-lesion sensitivities.
+
+    Args:
+        sim: Simulation object (must already have run, so sim.theta0 is set).
+        T_END: End time used for the adjoint solve.
+        dt: Timestep.
+        n_ig_steps: Number of quadrature steps for Integrated Gradients.
+
+    Returns:
+        Dictionary of sensitivity vectors, each (N,):
+        - "dRf_dalpha"        : dRf/dα  (linearized, final-R objective)
+        - "dRm_dalpha"        : dRm/dα  (linearized, mean-R objective)
+        - "dRlink_dalpha"     : d(r_link)/dα (linearized, link-R objective)
+        - "IG_dRm_dalpha"     : Integrated Gradients for mean-R
+        - "IG_dRlink_dalpha"  : Integrated Gradients for link-R
+    """
+    t0, t1 = 0.0, T_END
+    ts = jnp.arange(t0 + dt, t1 + dt / 2, dt)
+    ts = ts[ts <= t1]
+
+    alpha0 = jnp.zeros((sim.grid.N,), dtype=sim.params.K.dtype)
+    alpha_target = jnp.ones((sim.grid.N,), dtype=sim.params.K.dtype)
+
+    dRf_dalpha = grads_final_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=jnp.array([t1]))
+    dRm_dalpha = grads_mean_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+    dRlink_dalpha = grads_mean_r_link_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+
+    IG_dRm_dalpha = ig_mean_R_alpha(sim.params, alpha_target, sim.theta0, t0, t1, dt, ts=ts, n_steps=n_ig_steps)
+    IG_dRlink_dalpha = ig_mean_r_link_alpha(sim.params, alpha_target, sim.theta0, t0, t1, dt, ts=ts, n_steps=n_ig_steps)
+
+    return {
+        "dRf_dalpha": np.asarray(dRf_dalpha),
+        "dRm_dalpha": np.asarray(dRm_dalpha),
+        "dRlink_dalpha": np.asarray(dRlink_dalpha),
+        "IG_dRm_dalpha": np.asarray(IG_dRm_dalpha),
+        "IG_dRlink_dalpha": np.asarray(IG_dRlink_dalpha),
+    }
+
+def get_adjoint_metrics(
+    sim: Simulation | None = None,
+    grads: dict[str, np.ndarray] | None = None,
+    *,
+    T_END: float | None = None,
+    dt: float | None = None,
+    n_ig_steps: int = 20,
+) -> dict[str, np.ndarray]:
+    """Compute linearized and integrated-gradient node-lesion sensitivities.
+
+    Args:
+        sim: Simulation object (must already have run, so sim.theta0 is set).
+        grads: Dictionary of sensitivity vectors, each (N,):
+        - "dRm_dalpha"        : dRm/dα  (linearized, mean-R objective)
+        - "dRlink_dalpha"     : d(r_link)/dα (linearized, link-R objective)
+        - "IG_dRm_dalpha"     : Integrated Gradients for mean-R
+        - "IG_dRlink_dalpha"  : Integrated Gradients for link-R
+        T_END: End time used for the adjoint solve.
+        dt: Timestep.
+        n_ig_steps: Number of quadrature steps for Integrated Gradients.
+
+    Returns:
+        Dictionary of sensitivity vectors, each (N,):
+        - "IRm_a"        : -dRm/dα  (linearized, mean-R objective)
+        - "IRlink_a"     : -dRlink/dα (linearized, link-R objective)
+        - "IG_IRm_a"     : -IG dRm/dα (Integrated Gradients for mean-R)
+        - "IG_IRlink_a"  : -IG dRlink/dα (Integrated Gradients for link-R)
+    """
+    if sim is not None:
+        if T_END is None or dt is None:
+            raise ValueError("Provide T_END and dt when sim is provided.")
+        if grads is not None:
+            raise ValueError("Provide either sim or grads, not both.")
+        t0, t1 = 0.0, T_END
+        ts = jnp.arange(t0 + dt, t1 + dt / 2, dt)
+        ts = ts[ts <= t1]
+
+        alpha0 = jnp.zeros((sim.grid.N,), dtype=sim.params.K.dtype)
+        alpha_target = jnp.ones((sim.grid.N,), dtype=sim.params.K.dtype)
+
+        dRm_dalpha = grads_mean_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+        dRlink_dalpha = grads_mean_r_link_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+
+        IG_dRm_dalpha = ig_mean_R_alpha(sim.params, alpha_target, sim.theta0, t0, t1, dt, ts=ts, n_steps=n_ig_steps)
+        IG_dRlink_dalpha = ig_mean_r_link_alpha(sim.params, alpha_target, sim.theta0, t0, t1, dt, ts=ts, n_steps=n_ig_steps)
+    elif grads is not None:
+        dRm_dalpha = grads["dRm_dalpha"]
+        dRlink_dalpha = grads["dRlink_dalpha"]
+        IG_dRm_dalpha = grads["IG_dRm_dalpha"]
+        IG_dRlink_dalpha = grads["IG_dRlink_dalpha"]
+    else:
+        raise ValueError("Provide either sim or grads.")
+
+    # NOTE: negative sign since increasing alpha results in negative grad if node is important
+    IRm_a = -dRm_dalpha
+    IRlink_a = -dRlink_dalpha
+    IG_IRm_a = -IG_dRm_dalpha
+    IG_IRlink_a = -IG_dRlink_dalpha
+
+    return {
+        "IRm_a": np.asarray(IRm_a),
+        "IRlink_a": np.asarray(IRlink_a),
+        "IG_IRm_a": np.asarray(IG_IRm_a),
+        "IG_IRlink_a": np.asarray(IG_IRlink_a),
+    }
+
 # --- Finite difference ---
 def finite_diff_dJ_dalpha(sim, obj_fn, node_idx, t0, t1, dt, ts, eps=1e-2):
     """Central finite-difference for dJ/dalpha_i."""
@@ -264,7 +376,7 @@ def finite_diff_dJ_dalpha(sim, obj_fn, node_idx, t0, t1, dt, ts, eps=1e-2):
     )
     return float((J_plus - J_minus) / (2 * eps))
 
-# --- Visualization ---
+# --- Visualization --- # TODO: move to plotting.py
 def get_norm_cmap(array: jnp.ndarray) -> tuple[Normalize, str]:
     if np.any(array < 0) and np.any(array > 0):
         norm = TwoSlopeNorm(vmin=np.min(array), vcenter=0.0, vmax=np.max(array))
@@ -330,3 +442,138 @@ def plot_advanced_grads(dR_dalpha: jnp.ndarray, I_node: jnp.ndarray, grid_shape:
     fig.colorbar(im,ax=ax[1],fraction=0.046, pad=0.04, norm=norm)
 
     fig.suptitle(title)
+
+# Grouped plotting 
+def plot_adjoint_grads(
+    grads: dict[str, np.ndarray] | None = None,
+    sim: "Simulation | None" = None,
+    grid_shape: tuple[int, int] | None = None,
+    *,
+    T_END: float | None = None,
+    dt: float | None = None,
+    n_ig_steps: int = 20,
+    title: str | None = None,
+    axs: list[plt.Axes] | None = None,
+    cmap: str = "bwr",
+) -> tuple[plt.Figure, np.ndarray]:
+    """Plot linearized (top row) and Integrated Gradients (bottom row) adjoint sensitivities.
+
+    Args:
+        metrics: Pre-computed dict from ``get_adjoint_metrics``. If None, ``sim``,
+                 ``T_END``, and ``dt`` must be provided.
+        sim: Simulation object (used when metrics is None).
+        grid_shape: 2-tuple (rows, cols) for reshaping the (N,) vectors to 2D.
+                    Inferred from sim.grid if not given.
+        T_END, dt, n_ig_steps: Passed to ``get_adjoint_metrics`` when needed.
+        title: Figure suptitle.
+        axs: Pre-existing 2×3 axes array. Created internally if None.
+        cmap: Diverging colormap; default "bwr".
+
+    Returns:
+        (fig, axs)  — axs is shape (2, 3).
+    """
+    if grads is None:
+        if sim is None or T_END is None or dt is None:
+            raise ValueError("Provide either grads, or (sim, T_END, dt).")
+        grads = get_adjoint_grads(sim, T_END=T_END, dt=dt, n_ig_steps=n_ig_steps)
+
+    if grid_shape is None:
+        if sim is None:
+            raise ValueError("grid_shape must be provided when sim is None.")
+        grid_shape = sim.grid.shape
+
+    if axs is None:
+        fig, axs = plt.subplots(2, 3, figsize=(16, 9), constrained_layout=True)
+    else:
+        fig = axs[0, 0].get_figure()
+
+    panels = [
+        # (row, col, key,             display_title)
+        (0, 0, "dRf_dalpha",       "dRf/dα (linear)"),
+        (0, 1, "dRm_dalpha",       "dRm/dα (linear)"),
+        (0, 2, "dRlink_dalpha",    "dRlink/dα (linear)"),
+        (1, 1, "IG_dRm_dalpha",    f"IG dRm/dα ({n_ig_steps} steps)"),
+        (1, 2, "IG_dRlink_dalpha", f"IG dRlink/dα ({n_ig_steps} steps)"),
+    ]
+
+    axs[1, 0].set_visible(False)  # no IG equivalent for Rf
+
+    for row, col, key, panel_title in panels:
+        ax = axs[row, col]
+        data = grads[key].reshape(grid_shape)
+        im = ax.imshow(data, norm=CenteredNorm(), cmap=cmap)
+        ax.set_title(panel_title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    if title is not None:
+        fig.suptitle(title)
+
+    return fig, axs
+
+def plot_adjoint_metrics(
+    metrics: dict[str, np.ndarray] | None = None,
+    sim: "Simulation | None" = None,
+    grid_shape: tuple[int, int] | None = None,
+    *,
+    T_END: float | None = None,
+    dt: float | None = None,
+    n_ig_steps: int = 20,
+    title: str | None = None,
+    axs: list[plt.Axes] | None = None,
+    cmap: str = "bwr",
+) -> tuple[plt.Figure, np.ndarray]:
+    """Plot linearized (top row) and Integrated Gradients (bottom row) adjoint sensitivities.
+
+    Args:
+        metrics: Pre-computed dict from ``get_adjoint_metrics``. If None, ``sim``,
+                 ``T_END``, and ``dt`` must be provided.
+        sim: Simulation object (used when metrics is None).
+        grid_shape: 2-tuple (rows, cols) for reshaping the (N,) vectors to 2D.
+                    Inferred from sim.grid if not given.
+        T_END, dt, n_ig_steps: Passed to ``get_adjoint_metrics`` when needed.
+        title: Figure suptitle.
+        axs: Pre-existing 2×2 axes array. Created internally if None.
+        cmap: Diverging colormap; default "bwr".
+
+    Returns:
+        (fig, axs)  — axs is shape (2, 2).
+    """
+    if metrics is None:
+        if sim is None or T_END is None or dt is None:
+            raise ValueError("Provide either metrics, or (sim, T_END, dt).")
+        metrics = get_adjoint_metrics(sim, T_END=T_END, dt=dt, n_ig_steps=n_ig_steps)
+
+    if grid_shape is None:
+        if sim is None:
+            raise ValueError("grid_shape must be provided when sim is None.")
+        grid_shape = sim.grid.shape
+
+    if axs is None:
+        fig, axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+    else:
+        fig = axs[0, 0].get_figure()
+
+    panels = [
+        # (row, col, key,             display_title)
+        (0, 0, "IRm_a",       "Mean R (−d⟨R⟩/dα, Linear)"),
+        (0, 1, "IRlink_a",    "Mean R_link (−d⟨R_link⟩/dα, Linear)"),
+        (1, 0, "IG_IRm_a",    f"Mean R (−IG d⟨R⟩/dα, {n_ig_steps} steps)"),
+        (1, 1, "IG_IRlink_a", f"Mean R_link (−IG d⟨R_link⟩/dα, {n_ig_steps} steps)"),
+   
+    ]
+
+    for row, col, key, panel_title in panels:
+        ax = axs[row, col]
+        data = metrics[key].reshape(grid_shape)
+        im = ax.imshow(data, norm=CenteredNorm(), cmap=cmap)
+        ax.set_title(panel_title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    if title is not None:
+        fig.suptitle(title)
+
+    return fig, axs
