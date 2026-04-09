@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from scipy.stats import spearmanr
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -23,25 +24,25 @@ def set_plot_settings():
     })
 
 METRIC_COLORS: dict[str, str] = {
-    # Degree (blue)
-    "deg_base": "#0d47a1",
-    "deg_eff": "#42a5f5",
-    # Closeness (teal)
-    "closeness_base": "#00695c",
-    "closeness_eff": "#4db6ac",
-    # Betweenness (green)
-    "betweenness_base": "#1b5e20",
-    "betweenness_eff": "#66bb6a",
-    # Eigenvector (purple)
-    "eigenvector_base": "#4a148c",
-    "eigenvector_eff": "#9c27b0",
-    "eigenvector_C_avg": "#ce93d8",
-    # Gradient adjoint (orange)
-    "IRm_a_base": "#FF9800",
-    "IRlink_a_base": "#FFB74D",
-    # integrated gradient (red)
-    "IG_IRm_a": "#b71c1c",
-    "IG_IRlink_a": "#e53935",
+    # Degree — slate blue
+    "deg_base": "#1e3a5f",
+    "deg_eff": "#5b8ec9",
+    # Closeness — teal
+    "closeness_base": "#0d5c6b",
+    "closeness_eff": "#5eb8c4",
+    # Betweenness — forest / mint
+    "betweenness_base": "#2d5a3d",
+    "betweenness_eff": "#7cbf8a",
+    # Eigenvector — plum / lilac
+    "eigenvector_base": "#4a3f6b",
+    "eigenvector_eff": "#9b7fd1",
+    "eigenvector_C_avg": "#d4c4ef",
+    # Adjoint gradient — amber / sand
+    "IRm_a_base": "#b45309",
+    "IRlink_a_base": "#e4b86a",
+    # Integrated gradient — brick / rose
+    "IG_IRm_a": "#8b1e1e",
+    "IG_IRlink_a": "#d67b7b",
 }
 
 def color_for_metric(name: str, fallback: str = "#757575") -> str:
@@ -290,6 +291,226 @@ def animate_from_run(
         **kwargs,
     )
 
+# --- Lesion Study and ensemble plots ---
+
+def plot_rt_traces_per_case(
+    rt_by_case: Mapping[str, np.ndarray],
+    dt: float,
+    case_labels: Mapping[str, str],
+    *,
+    suptitle: str | None = None,
+    ylim: tuple[float, float] = (0.0, 1.05),
+    xlabel: str = "t",
+    ylabel: str = "R(t)",
+    figsize_per_col: float = 4.0,
+    fig_height: float = 3.0,
+    suptitle_y: float = 1.06,
+):
+    """One R(t) trace per case (e.g. one chosen seed per θ-sigma / ω-sigma)."""
+    case_names = list(rt_by_case.keys())
+    n = len(case_names)
+    if n == 0:
+        raise ValueError("rt_by_case must be non-empty")
+
+    fig, axs = plt.subplots(1, n, figsize=(figsize_per_col * n, fig_height), constrained_layout=True)
+    if n == 1:
+        axs = np.array([axs])
+
+    for ax, case_name in zip(axs.flat, case_names):
+        Rt = np.asarray(rt_by_case[case_name])
+        ax.plot(np.arange(len(Rt)) * dt, Rt)
+        ax.set_title(case_labels[case_name])
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_ylim(*ylim)
+
+    if suptitle is not None:
+        fig.suptitle(suptitle, y=suptitle_y)
+    return fig, axs
+
+
+def plot_abc_mean_heatmap(
+    agg: Mapping[str, Mapping],
+    case_names: Sequence[str],
+    metrics: Sequence[str],
+    case_labels: Mapping[str, str],
+    *,
+    title: str,
+    mean_key: str = "ABC_mean",
+    cmap: str = "viridis",
+    cbar_label: str = "ABC",
+    fig_width_per_case: float = 1.2,
+    fig_width_base: float = 6.0,
+    fig_height_per_metric: float = 0.25,
+    fig_height_base: float = 3.0,
+    xtick_rotation: float = 30.0,
+    ha: str = "right",
+):
+    """Rows = metrics, columns = cases; values from ``agg[case][mean_key][metric]``."""
+    metrics = list(metrics)
+    case_names = list(case_names)
+    if not metrics or not case_names:
+        raise ValueError("metrics and case_names must be non-empty")
+
+    heat = np.array(
+        [[agg[c][mean_key][m] for c in case_names] for m in metrics],
+        dtype=float,
+    )
+    fig_w = fig_width_per_case * len(case_names) + fig_width_base
+    fig_h = fig_height_per_metric * len(metrics) + fig_height_base
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), constrained_layout=True)
+    im = ax.imshow(heat, aspect="auto", cmap=cmap)
+    ax.set_xticks(np.arange(len(case_names)))
+    ax.set_xticklabels([case_labels[c] for c in case_names], rotation=xtick_rotation, ha=ha)
+    ax.set_yticks(np.arange(len(metrics)))
+    ax.set_yticklabels(metrics)
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=cbar_label)
+    return fig, ax
+
+
+def abc_rank_correlation_matrix(
+    agg: Mapping[str, Mapping],
+    case_names: Sequence[str],
+) -> np.ndarray:
+    """Pairwise Spearman ρ between mean-ABC vectors across cases (same metric ordering)."""
+    case_names = list(case_names)
+    mlist = agg[case_names[0]]["metrics"]
+    abc_vecs = np.array([[agg[c]["ABC_mean"][m] for m in mlist] for c in case_names])
+    n = len(case_names)
+    corr = np.ones((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            rho, _ = spearmanr(abc_vecs[i], abc_vecs[j])
+            corr[i, j] = corr[j, i] = rho
+    return corr
+
+
+def plot_abc_rank_correlation_heatmap(
+    corr: np.ndarray,
+    case_names: Sequence[str],
+    case_labels: Mapping[str, str],
+    *,
+    title: str,
+    vmin: float = -1.0,
+    vmax: float = 1.0,
+    cmap: str = "RdBu_r",
+    cbar_label: str = "Spearman ρ",
+    figsize: tuple[float, float] = (8.0, 5.0),
+    xtick_rotation: float = 45.0,
+    tick_fontsize: float = 8.0,
+    ann_fontsize: float = 7.0,
+    text_fmt: str = "{:.2f}",
+    ha: str = "right",
+):
+    """Annotated heatmap for a symmetric correlation matrix (e.g. from ``abc_rank_correlation_matrix``)."""
+    case_names = list(case_names)
+    n = len(case_names)
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    im = ax.imshow(corr, vmin=vmin, vmax=vmax, cmap=cmap)
+    ticks = np.arange(n)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(
+        [case_labels[c] for c in case_names], rotation=xtick_rotation, ha=ha, fontsize=tick_fontsize
+    )
+    ax.set_yticks(ticks)
+    ax.set_yticklabels([case_labels[c] for c in case_names], fontsize=tick_fontsize)
+    for i in range(n):
+        for j in range(n):
+            ax.text(j, i, text_fmt.format(corr[i, j]), ha="center", va="center", fontsize=ann_fontsize)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label=cbar_label)
+    ax.set_title(title)
+    return fig, ax
+
+def plot_lesion_r_avg_ranked_overlay(
+    lesion_fracs: np.ndarray,
+    case_names: Sequence[str],
+    case_labels: Mapping[str, str],
+    agg: Mapping[str, Mapping],
+    metrics: Sequence[str],
+    *,
+    suptitle: str | None = None,
+    ylabel: str = r"R$_{avg}$ (ranked metric curves)",
+    xlabel: str = "lesion_frac",
+    cmap: str = "tab10",
+    figsize_per_col: float = 4,
+    fig_height: float = 4,
+    line_lw: float = 2.0,
+    fill_alpha: float = 0.18,
+    random_color: str = "tab:gray",
+    random_lw: float = 1.7,
+    random_fill_alpha: float = 0.15,
+    legend_ncol_max: int = 5,
+    legend_bbox: tuple[float, float] = (0.5, -0.08),
+    legend_fontsize: float = 9,
+    title_fontsize: float = 11,
+    suptitle_y: float = 1.06,
+    sharex: bool = True,
+    sharey: bool = True,
+):
+    """Overlay R_avg (ranked) vs lesion_frac for several metrics; optional random baseline.
+
+    ``agg`` must match ``aggregate_scores`` output: per case, keys
+    ``R_avg_ranked_mean``, ``R_avg_ranked_std``, ``R_avg_random_mean``,
+    ``R_avg_random_std`` indexed by metric name.
+
+    The random baseline is taken from ``metrics[0]`` (same random curve for all metrics).
+    """
+    metrics = list(metrics)
+    if not metrics:
+        raise ValueError("metrics must be non-empty")
+
+    ncols = len(case_names)
+    if ncols == 0:
+        raise ValueError("case_names must be non-empty")
+
+    colormap = plt.get_cmap(cmap)
+    fig, axs = plt.subplots(
+        1,
+        ncols,
+        figsize=(figsize_per_col * ncols, fig_height),
+        constrained_layout=True,
+        sharex=sharex,
+        sharey=sharey,
+    )
+    if ncols == 1:
+        axs = np.array([axs])
+
+    x = np.asarray(lesion_fracs)
+
+    for c, case_name in enumerate(case_names):
+        ax = axs.flat[c]
+        for i, metric in enumerate(metrics):
+            y = agg[case_name]["R_avg_ranked_mean"][metric]
+            yerr = agg[case_name]["R_avg_ranked_std"][metric]
+            color = colormap(i)
+            ax.plot(x, y, label=metric, color=color, lw=line_lw)
+            ax.fill_between(x, y - yerr, y + yerr, color=color, alpha=fill_alpha)
+
+        y0 = agg[case_name]["R_avg_random_mean"][metrics[0]]
+        y0err = agg[case_name]["R_avg_random_std"][metrics[0]]
+        ax.plot(x, y0, label="random", color=random_color, linestyle="--", lw=random_lw)
+        ax.fill_between(x, y0 - y0err, y0 + y0err, color=random_color, alpha=random_fill_alpha)
+
+        ax.set_title(case_labels[case_name], fontsize=title_fontsize)
+        if c == 0:
+            ax.set_ylabel(ylabel)
+        ax.set_xlabel(xlabel)
+
+    handles, labels = axs.flat[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=min(len(handles), legend_ncol_max),
+        bbox_to_anchor=legend_bbox,
+        fontsize=legend_fontsize,
+        frameon=False,
+    )
+    if suptitle is not None:
+        fig.suptitle(suptitle, y=suptitle_y)
+
+    return fig, axs
 
 def _style_metric_colored_horizontal_boxplot(
     box_dict: dict,
