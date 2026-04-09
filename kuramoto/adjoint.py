@@ -158,6 +158,81 @@ def grads_mean_r_link_alpha(
     return jax.grad(mean_r_link_lesioned, argnums=1)(params, alpha, theta0, t0, t1, dt, ts)
 
 
+def integrated_grads_alpha(
+    obj_lesioned,
+    params: KuramotoParams,
+    alpha_target: jnp.ndarray,
+    theta0: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    ts: jnp.ndarray | None = None,
+    n_steps: int = 20,
+) -> jnp.ndarray:
+    """Integrated Gradients w.r.t. node lesion params along uniform path 0 -> alpha_target.
+    Reference: (Sundararajan et al. 2017). 
+
+    Integrates dJ/dalpha along the straight-line path alpha(s) = s * alpha_target,
+    s in [0, 1], via the trapezoid rule.  
+
+    This captures the full nonlinear response of J to lesioning, unlike the first-order
+    approximation dJ/dalpha|_{alpha=0}.
+
+    Args:
+        obj_lesioned: Differentiable objective with signature
+            (params, alpha, theta0, t0, t1, dt, ts) -> scalar.
+        params: KuramotoParams for the intact network.
+        alpha_target: Target lesion vector (N,);
+        theta0: Initial phases (N,).
+        t0, t1, dt: Time span and step.
+        ts: Saved time points (passed through to the ODE solver).
+        n_steps: Number of quadrature steps along the path (default 20).
+
+    Returns:
+        IG attribution vector of shape (N,).
+    """
+    scales = jnp.linspace(0.0, 1.0, n_steps)
+
+    def grad_at_scale(s: jnp.ndarray) -> jnp.ndarray:
+        alpha = s * alpha_target
+        return jax.grad(obj_lesioned, argnums=1)(params, alpha, theta0, t0, t1, dt, ts)
+
+    grads_path = jax.vmap(grad_at_scale)(scales)  # (n_steps, N)
+    return jnp.trapezoid(grads_path, scales, axis=0) * alpha_target  # (N,)
+
+
+def ig_mean_R_alpha(
+    params: KuramotoParams,
+    alpha_target: jnp.ndarray,
+    theta0: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    ts: jnp.ndarray | None = None,
+    n_steps: int = 20,
+) -> jnp.ndarray:
+    """Integrated Gradients of mean R w.r.t. node lesion params."""
+    return integrated_grads_alpha(
+        mean_order_parameter_lesioned, params, alpha_target, theta0, t0, t1, dt, ts, n_steps
+    )
+
+
+def ig_mean_r_link_alpha(
+    params: KuramotoParams,
+    alpha_target: jnp.ndarray,
+    theta0: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    ts: jnp.ndarray | None = None,
+    n_steps: int = 20,
+) -> jnp.ndarray:
+    """Integrated Gradients of mean R_link w.r.t. node lesion params."""
+    return integrated_grads_alpha(
+        mean_r_link_lesioned, params, alpha_target, theta0, t0, t1, dt, ts, n_steps
+    )
+
+
 def node_importance_from_gradK(K: jnp.ndarray, dJ_dK: jnp.ndarray) -> jnp.ndarray:
     """Aggregate edge sensitivities into a node-importance score.
 

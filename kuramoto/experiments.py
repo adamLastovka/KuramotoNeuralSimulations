@@ -6,7 +6,7 @@ from .simulation import Simulation
 
 from kuramoto.network import create_cortical_graph, get_graph_metrics
 from kuramoto.analysis import avg_effective_coupling, functional_connectivity
-from kuramoto.adjoint import grads_final_R, grads_mean_R, node_importance_from_gradK, grads_final_R_alpha, grads_mean_R_alpha, grads_mean_r_link_alpha
+from kuramoto.adjoint import grads_final_R, grads_mean_R, node_importance_from_gradK, grads_final_R_alpha, grads_mean_R_alpha, grads_mean_r_link_alpha, ig_mean_R_alpha, ig_mean_r_link_alpha
 from kuramoto.analysis import order_parameter
 
 def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: float, lesion_strength: float = 1.0, T_END: float = 10.0, dt: float = 0.01, SEED: int = 42) -> None:
@@ -46,7 +46,7 @@ def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: fl
     results_lesioned = sim.run_with_lesions(alpha, (0, T_END), dt, rng=RNG) # run lesioned simulation
     return results_lesioned, alpha, apply_node_lesions(sim.coupling.K, alpha)
 
-def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.01, RNG: np.random.Generator = None, n_random_repeats: int = 10, lesion_fracs: np.ndarray = np.arange(0, 0.3, 0.02), lesion_strength: float = 1.0,verbose: bool = True) -> dict[str, float]:
+def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.01, RNG: np.random.Generator = None, n_random_repeats: int = 10, lesion_fracs: np.ndarray = np.arange(0, 0.3, 0.02), lesion_strength: float = 1.0, n_ig_steps: int = 20, verbose: bool = True) -> dict[str, float]:
     """Evaluate metric scores for a given simulation.
     
     Args:
@@ -106,16 +106,24 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
     IRm_a = -dRm_dalpha
     IRlink_a = -dr_link_dalpha
 
+    # Integrated Gradient metric
+    if verbose:
+        print("Calculating Integrated Gradients metrics...")
+    alpha_target = jnp.ones(sim.grid.N, dtype=sim.params.K.dtype) * lesion_strength
+    IG_Rm = -ig_mean_R_alpha(sim.params, alpha_target, sim.theta0, t0, t1, dt, ts, n_ig_steps)
+    IG_link = -ig_mean_r_link_alpha(sim.params, alpha_target, sim.theta0, t0, t1, dt, ts, n_ig_steps)
+
+    # NOTE: ommitting C_avg metrics except for eigenvector because they are not effective
     metrics = {
         "deg_base": graph_metrics["deg_cent"],
         "deg_eff": graph_metrics_eff["deg_cent"],
-        "deg_C_avg": graph_metrics_C_avg["deg_cent"],
+        # "deg_C_avg": graph_metrics_C_avg["deg_cent"], 
         "closeness_base": graph_metrics["closeness"],
         "closeness_eff": graph_metrics_eff["closeness"],
-        "closeness_C_avg": graph_metrics_C_avg["closeness"],
+        # "closeness_C_avg": graph_metrics_C_avg["closeness"],
         "betweenness_base": graph_metrics["betweenness"],
         "betweenness_eff": graph_metrics_eff["betweenness"],
-        "betweenness_C_avg": graph_metrics_C_avg["betweenness"],
+        # "betweenness_C_avg": graph_metrics_C_avg["betweenness"],
         "eigenvector_base": graph_metrics["eigenvector"],
         "eigenvector_eff": graph_metrics_eff["eigenvector"],
         "eigenvector_C_avg": graph_metrics_C_avg["eigenvector"],
@@ -124,6 +132,8 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
         # "IRf_a_base": IRf_a, # not including Rf as performance metric
         "IRm_a_base": IRm_a,
         "IRlink_a_base": IRlink_a,
+        "IG_IRm_a": IG_Rm,
+        "IG_IRlink_a": IG_link,
     }
 
     # Run lesion study for each metric
