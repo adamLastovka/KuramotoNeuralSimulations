@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -20,6 +21,31 @@ def set_plot_settings():
         "xtick.labelsize": 12,
         "ytick.labelsize": 12,
     })
+
+METRIC_COLORS: dict[str, str] = {
+    # Degree (blue)
+    "deg_base": "#0d47a1",
+    "deg_eff": "#42a5f5",
+    # Closeness (teal)
+    "closeness_base": "#00695c",
+    "closeness_eff": "#4db6ac",
+    # Betweenness (green)
+    "betweenness_base": "#1b5e20",
+    "betweenness_eff": "#66bb6a",
+    # Eigenvector (purple)
+    "eigenvector_base": "#4a148c",
+    "eigenvector_eff": "#9c27b0",
+    "eigenvector_C_avg": "#ce93d8",
+    # Gradient adjoint (orange)
+    "IRm_a_base": "#FF9800",
+    "IRlink_a_base": "#FFB74D",
+    # integrated gradient (red)
+    "IG_IRm_a": "#b71c1c",
+    "IG_IRlink_a": "#e53935",
+}
+
+def color_for_metric(name: str, fallback: str = "#757575") -> str:
+    return METRIC_COLORS.get(name, fallback)
 
 
 def coupling_to_2d(
@@ -263,3 +289,149 @@ def animate_from_run(
         save_path=save_path,
         **kwargs,
     )
+
+
+def _style_metric_colored_horizontal_boxplot(
+    box_dict: dict,
+    metric_names: Sequence[str],
+    *,
+    patch_alpha: float = 0.8,
+    median_lw: float = 2.0,
+) -> None:
+    """Shared look: per-metric facecolor, median matches metric, 0.5 whiskers/caps, small fliers."""
+    names = list(metric_names)
+    for i, patch in enumerate(box_dict["boxes"]):
+        mc = color_for_metric(names[i])
+        patch.set_facecolor(mc)
+        patch.set_alpha(patch_alpha)
+        patch.set_edgecolor(mc)
+        patch.set_linewidth(0.6)
+    for i, med in enumerate(box_dict["medians"]):
+        mc = color_for_metric(names[i])
+        med.set_color(mc)
+        med.set_linewidth(median_lw)
+    for w in box_dict["whiskers"]:
+        w.set_color("0.5")
+    for cap in box_dict["caps"]:
+        cap.set_color("0.5")
+    for flier in box_dict["fliers"]:
+        flier.set_marker("o")
+        flier.set_markersize(4)
+        flier.set_alpha(0.5)
+        flier.set_markeredgecolor("0.5")
+        flier.set_markerfacecolor("white")
+
+
+def plot_abc_spread_boxplot_h(
+    abc_by_metric: Mapping[str, Sequence[float]],
+    *,
+    title: str,
+    xlabel: str = "ABC",
+    sort_ascending: bool = True,
+    fig_width: float = 10.0,
+    row_height: float = 0.35,
+    min_fig_height: float = 8.0,
+    vline_x: float | None = 0.0,
+    vline_kwargs: Mapping[str, Any] | None = None,
+    grid_axis_x: bool = True,
+    grid_alpha: float = 0.3,
+    patch_alpha: float = 0.4,
+    use_tight_layout: bool = True,
+    ax: Any | None = None,
+):
+    """Horizontal boxplots of ABC (or similar) across seeds, one row per metric, sorted by median.
+
+    ``abc_by_metric`` maps metric name -> list of values (e.g. one ABC per seed).
+    """
+    metrics = list(abc_by_metric.keys())
+    if not metrics:
+        raise ValueError("abc_by_metric must be non-empty")
+
+    def _median(m: str) -> float:
+        return float(np.median(np.asarray(abc_by_metric[m], dtype=float)))
+
+    order = sorted(metrics, key=_median, reverse=not sort_ascending)
+    data = [np.asarray(abc_by_metric[m], dtype=float).ravel() for m in order]
+
+    if ax is None:
+        fig_h = max(min_fig_height, row_height * len(order))
+        fig, ax = plt.subplots(figsize=(fig_width, fig_h))
+    else:
+        fig = ax.figure
+
+    bp = ax.boxplot(data, vert=False, patch_artist=True)
+    ax.set_yticks(np.arange(1, len(order) + 1))
+    ax.set_yticklabels(order)
+    _style_metric_colored_horizontal_boxplot(bp, order, patch_alpha=patch_alpha)
+
+    ax.set_xlabel(xlabel)
+    ax.set_title(title)
+
+    vline_kw = dict(color="k", lw=0.8, alpha=0.4, zorder=0) | dict(vline_kwargs or {})
+    if vline_x is not None:
+        ax.axvline(vline_x, **vline_kw)
+    if grid_axis_x:
+        ax.grid(axis="x", alpha=grid_alpha)
+    if use_tight_layout:
+        fig.tight_layout()
+    return fig, ax
+
+
+def plot_topk_abc_boxplots_h(
+    results: Mapping[str, Mapping[int, Mapping[str, Mapping]]],
+    agg: Mapping[str, Mapping],
+    seeds: Sequence[int],
+    case_names: Sequence[str],
+    metrics: Sequence[str],
+    case_labels: Mapping[str, str],
+    *,
+    top_k: int = 8,
+    score_key: str = "ABC",
+    mean_key: str = "ABC_mean",
+    suptitle: str | None = None,
+    xlabel: str = "ABC",
+    figsize_per_col: float = 5,
+    fig_height: float = 4.0,
+    title_fontsize: float = 9.0,
+    suptitle_y: float = 1.06,
+    vline_x: float | None = 0.0,
+    vline_kwargs: Mapping[str, Any] | None = None,
+    grid_axis_x: bool = True,
+    grid_alpha: float = 0.3,
+    patch_alpha: float = 0.6,
+):
+    """Horizontal boxplots of raw per-seed scores for top-K metrics (ranked by agg means)."""
+    metrics = list(metrics)
+    case_names = list(case_names)
+    if not metrics:
+        raise ValueError("metrics must be non-empty")
+
+    n = len(case_names)
+    fig, axs_flat = plt.subplots(
+        1, n, figsize=(figsize_per_col * n, fig_height), constrained_layout=True, sharex=False
+    )
+    if n == 1:
+        axs_flat = np.array([axs_flat])
+    else:
+        axs_flat = np.asarray(axs_flat).ravel()
+
+    vline_kw = dict(color="k", lw=0.8, alpha=0.4, zorder=0) | dict(vline_kwargs or {})
+
+    for ax, case_name in zip(axs_flat, case_names):
+        means = {m: agg[case_name][mean_key][m] for m in metrics}
+        top_m = sorted(means, key=means.__getitem__, reverse=True)[:top_k][::-1]
+        data = [[results[case_name][s][m][score_key] for s in seeds] for m in top_m]
+
+        box = ax.boxplot(data, vert=False, labels=top_m, patch_artist=True)
+        _style_metric_colored_horizontal_boxplot(box, top_m, patch_alpha=patch_alpha)
+
+        if vline_x is not None:
+            ax.axvline(vline_x, **vline_kw)
+        if grid_axis_x:
+            ax.grid(axis="x", alpha=grid_alpha)
+        ax.set_title(case_labels[case_name], fontsize=title_fontsize)
+        ax.set_xlabel(xlabel)
+
+    if suptitle is not None:
+        fig.suptitle(suptitle, y=suptitle_y)
+    return fig, axs_flat
