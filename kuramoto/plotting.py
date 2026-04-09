@@ -8,6 +8,8 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib import colormaps
+from matplotlib.colors import to_hex
 import numpy as np
 from scipy.sparse import spmatrix
 
@@ -23,26 +25,31 @@ def set_plot_settings():
         "ytick.labelsize": 12,
     })
 
+
+def _cmap_hex(name: str, t: float) -> str:
+    cmap = colormaps[name]
+    return to_hex(cmap(float(np.clip(t, 0.0, 1.0))))
+
 METRIC_COLORS: dict[str, str] = {
-    # Degree — slate blue
-    "deg_base": "#1e3a5f",
-    "deg_eff": "#5b8ec9",
-    # Closeness — teal
-    "closeness_base": "#0d5c6b",
-    "closeness_eff": "#5eb8c4",
-    # Betweenness — forest / mint
-    "betweenness_base": "#2d5a3d",
-    "betweenness_eff": "#7cbf8a",
-    # Eigenvector — plum / lilac
-    "eigenvector_base": "#4a3f6b",
-    "eigenvector_eff": "#9b7fd1",
-    "eigenvector_C_avg": "#d4c4ef",
-    # Adjoint gradient — amber / sand
-    "IRm_a_base": "#b45309",
-    "IRlink_a_base": "#e4b86a",
-    # Integrated gradient — brick / rose
-    "IG_IRm_a": "#8b1e1e",
-    "IG_IRlink_a": "#d67b7b",
+    # Degree — blues
+    "deg_base": _cmap_hex("Blues", 0.90),
+    "deg_eff": _cmap_hex("Blues", 0.55),
+    # Closeness — greens
+    "closeness_base": _cmap_hex("Greens", 0.88),
+    "closeness_eff": _cmap_hex("Greens", 0.52),
+    # Betweenness — greys
+    "betweenness_base": _cmap_hex("Greys", 0.82),
+    "betweenness_eff": _cmap_hex("Greys", 0.48),
+    # Eigenvector — purples
+    "eigenvector_base": _cmap_hex("Purples", 0.88),
+    "eigenvector_eff": _cmap_hex("Purples", 0.58),
+    "eigenvector_C_avg": _cmap_hex("Purples", 0.36),
+    # Adjoint gradient — oranges
+    "IRm_a_base": _cmap_hex("Oranges", 0.6),
+    "IRlink_a_base": _cmap_hex("Oranges", 0.4),
+    # Integrated gradient — reds
+    "IG_IRm_a": _cmap_hex("Reds", 0.9),
+    "IG_IRlink_a": _cmap_hex("Reds", 0.7),
 }
 
 def color_for_metric(name: str, fallback: str = "#757575") -> str:
