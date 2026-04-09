@@ -9,7 +9,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib import colormaps
-from matplotlib.colors import to_hex
+from matplotlib.colors import to_hex, Normalize, CenteredNorm, TwoSlopeNorm
 import numpy as np
 from scipy.sparse import spmatrix
 
@@ -30,29 +30,28 @@ def _cmap_hex(name: str, t: float) -> str:
     cmap = colormaps[name]
     return to_hex(cmap(float(np.clip(t, 0.0, 1.0))))
 
-METRIC_COLORS: dict[str, str] = {
-    # Degree — blues
-    "deg_base": _cmap_hex("Blues", 0.90),
-    "deg_eff": _cmap_hex("Blues", 0.55),
-    # Closeness — greens
-    "closeness_base": _cmap_hex("Greens", 0.88),
-    "closeness_eff": _cmap_hex("Greens", 0.52),
-    # Betweenness — greys
-    "betweenness_base": _cmap_hex("Greys", 0.82),
-    "betweenness_eff": _cmap_hex("Greys", 0.48),
-    # Eigenvector — purples
-    "eigenvector_base": _cmap_hex("Purples", 0.88),
-    "eigenvector_eff": _cmap_hex("Purples", 0.58),
-    "eigenvector_C_avg": _cmap_hex("Purples", 0.36),
-    # Adjoint gradient — oranges
-    "IRm_a_base": _cmap_hex("Oranges", 0.6),
-    "IRlink_a_base": _cmap_hex("Oranges", 0.4),
-    # Integrated gradient — reds
-    "IG_IRm_a": _cmap_hex("Reds", 0.9),
-    "IG_IRlink_a": _cmap_hex("Reds", 0.7),
-}
-
 def color_for_metric(name: str, fallback: str = "#757575") -> str:
+    METRIC_COLORS: dict[str, str] = {
+        # Degree — blues
+        "deg_base": _cmap_hex("Blues", 0.95),
+        "deg_eff": _cmap_hex("Blues", 0.7),
+        # Closeness — greens
+        "closeness_base": _cmap_hex("Purples", 0.95),
+        "closeness_eff": _cmap_hex("Purples", 0.7),
+        # Betweenness — greys
+        "betweenness_base": _cmap_hex("Greys", 0.95),
+        "betweenness_eff": _cmap_hex("Greys", 0.7),
+        # Eigenvector — purples
+        "eigenvector_base": _cmap_hex("Greens", 0.98),
+        "eigenvector_eff": _cmap_hex("Greens", 0.8),
+        "eigenvector_C_avg": _cmap_hex("Greens", 0.6),
+        # Adjoint gradient — oranges
+        "IRm_a_base": _cmap_hex("Oranges", 0.8),
+        "IRlink_a_base": _cmap_hex("Oranges", 0.6),
+        # Integrated gradient — reds
+        "IG_IRm_a": _cmap_hex("Reds", 0.95),
+        "IG_IRlink_a": _cmap_hex("Reds", 0.8),
+    }
     return METRIC_COLORS.get(name, fallback)
 
 
@@ -299,7 +298,6 @@ def animate_from_run(
     )
 
 # --- Lesion Study and ensemble plots ---
-
 def plot_rt_traces_per_case(
     rt_by_case: Mapping[str, np.ndarray],
     dt: float,
@@ -528,25 +526,26 @@ def _style_metric_colored_horizontal_boxplot(
 ) -> None:
     """Shared look: per-metric facecolor, median matches metric, 0.5 whiskers/caps, small fliers."""
     names = list(metric_names)
+
     for i, patch in enumerate(box_dict["boxes"]):
         mc = color_for_metric(names[i])
         patch.set_facecolor(mc)
         patch.set_alpha(patch_alpha)
-        patch.set_edgecolor(mc)
+        patch.set_edgecolor("0.1")
         patch.set_linewidth(0.6)
     for i, med in enumerate(box_dict["medians"]):
         mc = color_for_metric(names[i])
         med.set_color(mc)
         med.set_linewidth(median_lw)
     for w in box_dict["whiskers"]:
-        w.set_color("0.5")
+        w.set_color("0.1")
     for cap in box_dict["caps"]:
-        cap.set_color("0.5")
+        cap.set_color("0.1")
     for flier in box_dict["fliers"]:
         flier.set_marker("o")
         flier.set_markersize(4)
-        flier.set_alpha(0.5)
-        flier.set_markeredgecolor("0.5")
+        flier.set_alpha(0.8)
+        flier.set_markeredgecolor("0.1")
         flier.set_markerfacecolor("white")
 
 
@@ -562,8 +561,8 @@ def plot_abc_spread_boxplot_h(
     vline_x: float | None = 0.0,
     vline_kwargs: Mapping[str, Any] | None = None,
     grid_axis_x: bool = True,
-    grid_alpha: float = 0.3,
-    patch_alpha: float = 0.4,
+    grid_alpha: float = 0.4,
+    patch_alpha: float = 0.8,
     use_tight_layout: bool = True,
     ax: Any | None = None,
 ):
@@ -663,3 +662,397 @@ def plot_topk_abc_boxplots_h(
     if suptitle is not None:
         fig.suptitle(suptitle, y=suptitle_y)
     return fig, axs_flat
+
+# --- Adjoint / gradient visualization ---
+
+def get_norm_cmap(array: np.ndarray) -> tuple[Normalize, str]:
+    """Choose a norm and colormap based on the sign of array values."""
+    if np.any(array < 0) and np.any(array > 0):
+        norm = TwoSlopeNorm(vmin=float(np.min(array)), vcenter=0.0, vmax=float(np.max(array)))
+        cmap = "bwr"
+    elif np.all(array >= 0):
+        norm = Normalize(vmin=0, vmax=float(np.max(array)))
+        cmap = "Reds"
+    else:
+        norm = Normalize(vmin=float(np.min(array)), vmax=0.0)
+        cmap = "Blues"
+    return norm, cmap
+
+
+def plot_basic_grads(
+    g: Any,
+    grid_shape: tuple[int, int],
+    title: str = "Basic gradients",
+) -> tuple[plt.Figure, np.ndarray]:
+    """Plot dJ/dK matrix and dJ/dω spatial map for a KuramotoParams gradient struct."""
+    dR_dK = np.asarray(g.K)
+    dR_domega = np.asarray(g.omega)
+    dR_domega_2d = dR_domega.reshape(grid_shape)
+
+    N_edges = dR_dK.shape[0]
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    axs = axs.ravel()
+
+    norm, cmap = get_norm_cmap(dR_dK)
+    im = axs[0].imshow(dR_dK, cmap=cmap, norm=norm)
+    axs[0].set_title("dJ/dK")
+    if N_edges < 20:
+        axs[0].set_xticks(np.arange(0, N_edges, 1))
+        axs[0].set_yticks(np.arange(0, N_edges, 1))
+    elif N_edges < 100:
+        axs[0].set_xticks(np.arange(0, N_edges, 10))
+        axs[0].set_yticks(np.arange(0, N_edges, 10))
+    else:
+        axs[0].set_xticks(np.arange(0, N_edges, 20))
+        axs[0].set_yticks(np.arange(0, N_edges, 20))
+    axs[0].tick_params(axis="x", labelrotation=45)
+    fig.colorbar(im, ax=axs[0], fraction=0.046, pad=0.04)
+
+    norm, cmap = get_norm_cmap(dR_domega_2d)
+    im = axs[1].imshow(dR_domega_2d, cmap=cmap, norm=norm)
+    axs[1].set_title("dJ/domega0")
+    axs[1].set_xticks(np.arange(0, dR_domega_2d.shape[1], 1))
+    axs[1].set_yticks(np.arange(0, dR_domega_2d.shape[0], 1))
+    axs[1].tick_params(axis="x", labelrotation=45)
+    fig.colorbar(im, ax=axs[1], fraction=0.046, pad=0.04)
+    fig.suptitle(title)
+    return fig, axs
+
+
+def plot_advanced_grads(
+    dR_dalpha: np.ndarray,
+    I_node: np.ndarray,
+    grid_shape: tuple[int, int],
+    title: str = "Node importance",
+) -> tuple[plt.Figure, np.ndarray]:
+    """Plot dJ/dα and node-importance maps side-by-side."""
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5), constrained_layout=True)
+
+    norm, cmap = get_norm_cmap(np.asarray(dR_dalpha))
+    im = ax[0].imshow(np.asarray(dR_dalpha).reshape(grid_shape), norm=norm, cmap=cmap)
+    ax[0].set_title("dJ/dalpha")
+    ax[0].set_xticks(np.arange(0, grid_shape[1], 1))
+    ax[0].set_yticks(np.arange(0, grid_shape[0], 1))
+    fig.colorbar(im, ax=ax[0], fraction=0.046, pad=0.04)
+
+    norm, cmap = get_norm_cmap(np.asarray(I_node))
+    im = ax[1].imshow(np.asarray(I_node).reshape(grid_shape), cmap=cmap, norm=norm)
+    ax[1].set_title("I_node")
+    ax[1].set_xticks(np.arange(0, grid_shape[1], 1))
+    ax[1].set_yticks(np.arange(0, grid_shape[0], 1))
+    fig.colorbar(im, ax=ax[1], fraction=0.046, pad=0.04)
+
+    fig.suptitle(title)
+    return fig, ax
+
+
+def plot_adjoint_grads(
+    grads: dict[str, np.ndarray] | None = None,
+    sim: Any | None = None,
+    grid_shape: tuple[int, int] | None = None,
+    *,
+    T_END: float | None = None,
+    dt: float | None = None,
+    n_ig_steps: int = 20,
+    title: str | None = None,
+    axs: Any | None = None,
+    cmap: str = "bwr",
+) -> tuple[plt.Figure, np.ndarray]:
+    """Plot raw adjoint gradient maps (dRf/dα, dRm/dα, dRlink/dα + IG variants)."""
+    from .adjoint import get_adjoint_grads  # local import avoids circular dependency
+
+    if grads is None:
+        if sim is None or T_END is None or dt is None:
+            raise ValueError("Provide either grads, or (sim, T_END, dt).")
+        grads = get_adjoint_grads(sim, T_END=T_END, dt=dt, n_ig_steps=n_ig_steps)
+
+    if grid_shape is None:
+        if sim is None:
+            raise ValueError("grid_shape must be provided when sim is None.")
+        grid_shape = sim.grid.shape
+
+    if axs is None:
+        fig, axs = plt.subplots(2, 3, figsize=(16, 9), constrained_layout=True)
+    else:
+        fig = axs[0, 0].get_figure()
+
+    panels = [
+        (0, 0, "dRf_dalpha",       "dRf/dα (linear)"),
+        (0, 1, "dRm_dalpha",       "dRm/dα (linear)"),
+        (0, 2, "dRlink_dalpha",    "dRlink/dα (linear)"),
+        (1, 1, "IG_dRm_dalpha",    f"IG dRm/dα ({n_ig_steps} steps)"),
+        (1, 2, "IG_dRlink_dalpha", f"IG dRlink/dα ({n_ig_steps} steps)"),
+    ]
+    axs[1, 0].set_visible(False)
+
+    for row, col, key, panel_title in panels:
+        ax = axs[row, col]
+        data = grads[key].reshape(grid_shape)
+        im = ax.imshow(data, norm=CenteredNorm(), cmap=cmap)
+        ax.set_title(panel_title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    if title is not None:
+        fig.suptitle(title)
+    return fig, axs
+
+
+def plot_adjoint_metrics(
+    metrics: dict[str, np.ndarray] | None = None,
+    sim: Any | None = None,
+    grid_shape: tuple[int, int] | None = None,
+    *,
+    T_END: float | None = None,
+    dt: float | None = None,
+    n_ig_steps: int = 20,
+    title: str | None = None,
+    axs: Any | None = None,
+    cmap: str = "bwr",
+) -> tuple[plt.Figure, np.ndarray]:
+    """Plot node-importance maps: IRm_a, IRlink_a, IG_IRm_a, IG_IRlink_a (2×2 grid)."""
+    from .adjoint import get_adjoint_metrics  # local import avoids circular dependency
+
+    if metrics is None:
+        if sim is None or T_END is None or dt is None:
+            raise ValueError("Provide either metrics, or (sim, T_END, dt).")
+        metrics = get_adjoint_metrics(sim, T_END=T_END, dt=dt, n_ig_steps=n_ig_steps)
+
+    if grid_shape is None:
+        if sim is None:
+            raise ValueError("grid_shape must be provided when sim is None.")
+        grid_shape = sim.grid.shape
+
+    if axs is None:
+        fig, axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+    else:
+        fig = axs[0, 0].get_figure()
+
+    panels = [
+        (0, 0, "IRm_a",       "Mean R (−d⟨R⟩/dα, Linear)"),
+        (0, 1, "IRlink_a",    "Mean R_link (−d⟨R_link⟩/dα, Linear)"),
+        (1, 0, "IG_IRm_a",    f"Mean R (−IG d⟨R⟩/dα, {n_ig_steps} steps)"),
+        (1, 1, "IG_IRlink_a", f"Mean R_link (−IG d⟨R_link⟩/dα, {n_ig_steps} steps)"),
+    ]
+
+    for row, col, key, panel_title in panels:
+        ax = axs[row, col]
+        data = metrics[key].reshape(grid_shape)
+        im = ax.imshow(data, norm=CenteredNorm(), cmap=cmap)
+        ax.set_title(panel_title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    if title is not None:
+        fig.suptitle(title)
+    return fig, axs
+
+
+# --- Lesion-study level: single-seed ---
+def plot_single_metric_rt_comparison(
+    ts: np.ndarray,
+    R_base: np.ndarray,
+    R_ranked: np.ndarray,
+    R_random_mean: np.ndarray,
+    R_random_std: np.ndarray,
+    *,
+    lesion_frac: float,
+    metric_name: str = "",
+    title: str | None = None,
+    ax: Any | None = None,
+) -> tuple[plt.Figure, Any]:
+    """R(t) traces: base vs ranked-lesion vs random mean±std (single metric, single seed).
+
+    Args:
+        ts: Time vector (T,).
+        R_base: Baseline R(t) (T,).
+        R_ranked: R(t) after ranked lesioning (T,).
+        R_random_mean: Mean R(t) for random lesions, shape (T,).
+        R_random_std: Std of R(t) for random lesions, shape (T,).
+        lesion_frac: Fraction of nodes lesioned (used in legend label).
+        metric_name: Name of the metric (used in legend label).
+        title: Axes title.
+        ax: Existing axes; created if None.
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+    else:
+        fig = ax.get_figure()
+
+    ax.plot(ts, R_base, label="base", color="k", lw=2)
+
+    mc = color_for_metric(metric_name)
+    label = f"ranked ({lesion_frac:.0%}" + (f", {metric_name}" if metric_name else "") + ")"
+    ax.plot(ts, R_ranked, label=label, color=mc, lw=2)
+
+    # Plot random mean and fill between mean ± std
+    random_label = f"random ({lesion_frac:.0%})"
+    ax.plot(ts, R_random_mean, linestyle="--", color="tab:gray", alpha=0.9, label=random_label)
+    ax.fill_between(
+        ts,
+        R_random_mean - R_random_std,
+        R_random_mean + R_random_std,
+        color="tab:gray",
+        alpha=0.3,
+        zorder=0,
+        label=None
+    )
+
+    ax.set_xlabel("t")
+    ax.set_ylabel("R(t)")
+    ax.set_ylim(0, 1.05)
+    ax.legend(fontsize=9)
+    ax.set_title(title or "R(t): ranked vs random lesioning")
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_r_vs_lesion_frac(
+    lesion_fracs: np.ndarray,
+    R_final_ranked: Sequence[float],
+    R_avg_ranked: Sequence[float],
+    R_final_random: Sequence[float],
+    R_avg_random: Sequence[float],
+    *,
+    title: str | None = None,
+    figsize: tuple[float, float] = (14, 4),
+) -> tuple[plt.Figure, np.ndarray]:
+    """Two-panel plot: R_final and R_avg vs lesion fraction (single metric, single seed)."""
+    fig, axes = plt.subplots(1, 2, figsize=figsize, constrained_layout=True)
+    x = np.asarray(lesion_fracs) * 100
+
+    axes[0].plot(x, R_final_ranked, label="Ranked", color="#0072B2", lw=2)
+    axes[0].plot(x, R_final_random, label="Random", color="#E69F00", lw=2, ls="--")
+    axes[0].set_xlabel("Lesion fraction (%)")
+    axes[0].set_ylabel("Final R")
+    axes[0].legend()
+    axes[0].grid(axis="y", alpha=0.3)
+
+    axes[1].plot(x, R_avg_ranked, label="Ranked", color="#0072B2", lw=2)
+    axes[1].plot(x, R_avg_random, label="Random", color="#E69F00", lw=2, ls="--")
+    axes[1].set_xlabel("Lesion fraction (%)")
+    axes[1].set_ylabel("Mean R(t)")
+    axes[1].legend()
+    axes[1].grid(axis="y", alpha=0.3)
+
+    if title is not None:
+        fig.suptitle(title)
+    return fig, axes
+
+
+def plot_auc_abc_diagram(
+    lesion_fracs: np.ndarray,
+    R_avg_ranked: Sequence[float],
+    R_avg_random: Sequence[float],
+    *,
+    AUC_ranked: float,
+    AUC_random: float,
+    ABC: float,
+    title: str | None = None,
+    ax: Any | None = None,
+) -> tuple[plt.Figure, Any]:
+    """Geometric illustration: AUC fills to axis + ABC gap between curves (single metric)."""
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(7, 4))
+    else:
+        fig = ax.get_figure()
+
+    x = np.asarray(lesion_fracs) * 100
+    Rr = np.asarray(R_avg_ranked, dtype=float)
+    Rm = np.asarray(R_avg_random, dtype=float)
+
+    ax.fill_between(x, 0, Rr, alpha=0.35, color="#0072B2",
+                    label=rf"AUC (ranked) $\approx$ {AUC_ranked:.4f}")
+    ax.fill_between(x, 0, Rm, alpha=0.35, color="#E69F00",
+                    label=rf"AUC (random) $\approx$ {AUC_random:.4f}")
+    ax.fill_between(x, Rr, Rm, alpha=0.4, color="#6B4C9A",
+                    label=rf"Between curves (ABC $\approx$ {ABC:+.4f})")
+    ax.plot(x, Rr, color="#0072B2", lw=2, zorder=5)
+    ax.plot(x, Rm, color="#E69F00", lw=2, ls="--", zorder=5)
+
+    ax.set_xlabel("Lesioned fraction (%)")
+    ax.set_ylabel(r"Mean $R$")
+    ax.set_title(title or r"Mean $R$ degradation: AUCs (to axis) and ABC (gap)")
+    ax.grid(True, axis="y", alpha=0.3, ls=":")
+    ax.legend(loc="best", fontsize=9)
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_auc_dotplot(
+    metric_scores: Mapping[str, Mapping],
+    *,
+    title: str | None = None,
+    xlabel: str = "AUC (smaller = faster degradation)",
+    fig_width: float = 9.0,
+    row_height: float = 0.35,
+    min_fig_height: float = 6.0,
+    ax: Any | None = None,
+) -> tuple[plt.Figure, Any]:
+    """Ranked vs random AUC dot-chart for all metrics, colored by metric family."""
+    metrics = list(metric_scores.keys())
+    order = sorted(metrics, key=lambda m: metric_scores[m]["ABC"])
+    y = np.arange(len(order))
+    auc_r = np.array([metric_scores[m]["AUC_ranked"] for m in order])
+    auc_rand = np.array([metric_scores[m]["AUC_random"] for m in order])
+
+    if ax is None:
+        fig_h = max(min_fig_height, row_height * len(order))
+        fig, ax = plt.subplots(figsize=(fig_width, fig_h))
+    else:
+        fig = ax.get_figure()
+
+    ax.hlines(y, np.minimum(auc_r, auc_rand), np.maximum(auc_r, auc_rand),
+              color="0.85", lw=2, zorder=0)
+    for i, m in enumerate(order):
+        mc = color_for_metric(m)
+        ax.plot(auc_r[i], y[i], "o", ms=7, color=mc, zorder=2, label="ranked" if i == 0 else None)
+        ax.plot(auc_rand[i], y[i], "s", ms=6, color=mc, alpha=0.55, zorder=2,
+                label="random" if i == 0 else None)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(order)
+    ax.set_xlabel(xlabel)
+    ax.set_title(title or "R AUC: importance-ranked vs random node lesions")
+    ax.legend(loc="lower left", fontsize=9)
+    ax.grid(axis="x", alpha=0.3)
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_abc_lollipop(
+    metric_scores: Mapping[str, Mapping],
+    *,
+    title: str | None = None,
+    xlabel: str = "ABC",
+    fig_width: float = 10.0,
+    row_height: float = 0.35,
+    min_fig_height: float = 8.0,
+    ax: Any | None = None,
+) -> tuple[plt.Figure, Any]:
+    """ABC lollipop chart: all metrics sorted by ABC, colored by metric family."""
+    metrics = list(metric_scores.keys())
+    order = sorted(metrics, key=lambda m: metric_scores[m]["ABC"])
+    abc = np.array([metric_scores[m]["ABC"] for m in order])
+    y = np.arange(len(order))
+
+    if ax is None:
+        fig_h = max(min_fig_height, row_height * len(order))
+        fig, ax = plt.subplots(figsize=(fig_width, fig_h))
+    else:
+        fig = ax.get_figure()
+
+    ax.hlines(y, 0, abc, color="0.75", lw=2, zorder=1)
+    for i, m in enumerate(order):
+        ax.plot(abc[i], y[i], "o", ms=8, color=color_for_metric(m), zorder=2, clip_on=False)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(order)
+    ax.set_xlabel(xlabel)
+    ax.set_title(title or "Area Between Curves (higher = better targeting)")
+    ax.axvline(0, color="k", lw=0.8, alpha=0.4)
+    ax.grid(axis="x", alpha=0.3)
+    fig.tight_layout()
+    return fig, ax

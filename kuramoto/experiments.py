@@ -177,3 +177,60 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
             "R_avg_random": R_avg_random,
         }
     return metric_scores
+
+# --- Multi-seed aggregation helpers ---
+
+def list_metrics(results_for_case: dict[int, dict]) -> list[str]:
+    """Return sorted metric names from a dict keyed by seed."""
+    first_seed = next(iter(results_for_case))
+    return sorted(results_for_case[first_seed].keys())
+
+
+def aggregate_scores(results: dict[str, dict[int, dict]]) -> dict:
+    """Aggregate per-seed metric scores across seeds for each case.
+
+    Args:
+        results: Nested dict: results[case_name][seed][metric_name] = score_dict.
+                 Each score_dict must have keys "ABC", "AUC_ranked", "AUC_random",
+                 "R_avg_ranked" (array), "R_avg_random" (array).
+
+    Returns:
+        Aggregated dict with mean/std over seeds for each statistic.
+    """
+    out = {}
+    for case_name, by_seed in results.items():
+        metrics = list_metrics(by_seed)
+
+        out[case_name] = {
+            "metrics": metrics,
+            "ABC_mean": {},
+            "ABC_std": {},
+            "AUC_ranked_mean": {},
+            "AUC_ranked_std": {},
+            "AUC_random_mean": {},
+            "AUC_random_std": {},
+            "R_avg_ranked_mean": {},
+            "R_avg_ranked_std": {},
+            "R_avg_random_mean": {},
+            "R_avg_random_std": {},
+        }
+
+        for m in metrics:
+            ABC = np.array([by_seed[s][m]["ABC"] for s in by_seed])
+            AUC_r = np.array([by_seed[s][m]["AUC_ranked"] for s in by_seed])
+            AUC_rand = np.array([by_seed[s][m]["AUC_random"] for s in by_seed])
+            R_ranked = np.array([by_seed[s][m]["R_avg_ranked"] for s in by_seed], dtype=float)
+            R_random = np.array([by_seed[s][m]["R_avg_random"] for s in by_seed], dtype=float)
+
+            out[case_name]["ABC_mean"][m] = float(np.mean(ABC))
+            out[case_name]["ABC_std"][m] = float(np.std(ABC))
+            out[case_name]["AUC_ranked_mean"][m] = float(np.mean(AUC_r))
+            out[case_name]["AUC_ranked_std"][m] = float(np.std(AUC_r))
+            out[case_name]["AUC_random_mean"][m] = float(np.mean(AUC_rand))
+            out[case_name]["AUC_random_std"][m] = float(np.std(AUC_rand))
+            out[case_name]["R_avg_ranked_mean"][m] = np.mean(R_ranked, axis=0)
+            out[case_name]["R_avg_ranked_std"][m] = np.std(R_ranked, axis=0)
+            out[case_name]["R_avg_random_mean"][m] = np.mean(R_random, axis=0)
+            out[case_name]["R_avg_random_std"][m] = np.std(R_random, axis=0)
+
+    return out
