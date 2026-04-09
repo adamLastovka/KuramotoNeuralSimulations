@@ -113,11 +113,7 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
         "eigenvector_base": graph_metrics["eigenvector"],
         "eigenvector_eff": graph_metrics_eff["eigenvector"],
         "eigenvector_C_avg": graph_metrics_C_avg["eigenvector"],
-        "I_final_base": I_final,
-        "I_final_eff": I_mean,
         "I_mean_base": I_mean,
-        "I_mean_eff": I_final,
-        "dRf_dalpha": dRf_dalpha,
         "dRm_dalpha": dRm_dalpha,
     }
 

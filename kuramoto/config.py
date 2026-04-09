@@ -43,6 +43,7 @@ class KernelComponentConfig:
     edge_mode: str = "outgoing"
     # Receiver groups used only for edge_mode="custom".
     to_node_groups: list[int] | None = None
+    seed: int | None = None # For reproducibility of dropout kernel
 
 
 @dataclass

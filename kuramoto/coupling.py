@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 from .grid import CorticalGrid
-from .kernels import apply_kernel, apply_kernel_jax
+from .kernels import apply_kernel, apply_kernel_jax, dropout_kernel
 
 if TYPE_CHECKING:
     from .config import KernelComponentConfig
@@ -109,14 +109,17 @@ class CouplingMatrix:
         return getattr(comp, key, default)
 
     def _build_from_components(self, components: list[object]) -> jnp.ndarray:
-        """Build heterogeneous/directed coupling by summing masked kernel components."""
+        """Build heterogeneous/directed coupling by summing masked kernel components.
+
+        Additive components (gaussian, constant, etc.) are summed into K first.
+        Dropout components are collected and applied multiplicatively afterwards,
+        scoped by their edge mask so only the targeted edges are randomly zeroed.
+        """
         n = self.grid.N
 
-        # Distances are constants w.r.t. kernel params; keep them in JAX once.
         dist_np, dr_np, dc_np = self.grid.pairwise_distances()
         dist = jnp.asarray(dist_np, dtype=jnp.float32)
 
-        # Only required if any component references group_ids (directed node selectors).
         group_ids_np = None
         if self.group_ids is not None:
             group_ids_np = np.asarray(self.group_ids, dtype=int)
@@ -126,12 +129,14 @@ class CouplingMatrix:
                 )
 
         K = jnp.zeros((n, n), dtype=jnp.float32)
+        deferred_dropout: list[tuple[jnp.ndarray, jnp.ndarray]] = []
 
         for comp_idx, comp in enumerate(components):
             kernel_name = self._component_get(comp, "kernel", "gaussian")
             strength = self._component_get(comp, "base_strength", 1.0)
             kernel_params = self._component_get(comp, "kernel_params", {})
             cutoff_radius = self._component_get(comp, "radius", None)
+            seed = self._component_get(comp, "seed", 0)
             if cutoff_radius is None:
                 cutoff_radius = self.radius
 
@@ -145,7 +150,7 @@ class CouplingMatrix:
                     "Expected one of: within/outgoing/incoming/custom."
                 )
 
-            # Sender selection: group membership for column j.
+            # Sender selection
             if node_groups is None:
                 sender_sel = np.ones((n,), dtype=bool)
             else:
@@ -155,7 +160,7 @@ class CouplingMatrix:
                     )
                 sender_sel = np.isin(group_ids_np, node_groups)
 
-            # Receiver selection: group membership for row i.
+            # Receiver selection
             if edge_mode == "custom":
                 if to_node_groups is None:
                     raise ValueError(
@@ -171,7 +176,7 @@ class CouplingMatrix:
             elif edge_mode == "incoming":
                 receiver_sel = sender_sel
             elif edge_mode == "outgoing":
-                receiver_sel = None  # any receiver
+                receiver_sel = None
 
             # Directed edge mask M[i,j]
             if edge_mode == "within":
@@ -185,40 +190,44 @@ class CouplingMatrix:
 
             mask = jnp.asarray(mask_np.astype(np.float32))
 
-            # Kernel weights W[i,j]
+            # Bufffer dropout mask for multiplicative application
+            if kernel_name == "dropout":
+                binary_mask = dropout_kernel(
+                    d=dist,
+                    dropout_frac=kernel_params.get("dropout_frac", 0.5),
+                    seed=seed,
+                )
+                deferred_dropout.append((binary_mask, mask))
+                continue
+
+            # Additive kernels
             if kernel_name == "constant":
                 weights = apply_kernel_jax(
-                    d=dist,
-                    name=kernel_name,
-                    params=kernel_params,
-                    radius=None,
+                    d=dist, name=kernel_name, params=kernel_params, radius=None,
                 )
             elif kernel_name == "gaussian":
                 weights = apply_kernel_jax(
-                    d=dist,
-                    name=kernel_name,
-                    params=kernel_params,
+                    d=dist, name=kernel_name, params=kernel_params,
                     radius=cutoff_radius,
                 )
             else:
-                # Non-JAX kernels: compute via NumPy and apply the same spatial self/threshold rules.
                 if cutoff_radius is not None:
                     dist_mask = (dist_np <= cutoff_radius) & (dist_np > 0)
                 else:
                     dist_mask = dist_np > 0
 
                 weights_np = apply_kernel(
-                    d=dist_np,
-                    name=kernel_name,
-                    params=kernel_params,
-                    radius=cutoff_radius,
-                    dx=dr_np,
-                    dy=dc_np,
+                    d=dist_np, name=kernel_name, params=kernel_params,
+                    radius=cutoff_radius, dx=dr_np, dy=dc_np,
                 )
                 weights_np = weights_np * dist_mask.astype(weights_np.dtype)
                 weights = jnp.asarray(weights_np, dtype=jnp.float32)
 
             K = K + jnp.asarray(strength, dtype=jnp.float32) * weights * mask
+
+        # Apply dropout masks multiplicatively
+        for binary_mask, edge_mask in deferred_dropout:
+            K = K * jnp.where(edge_mask > 0, binary_mask, 1.0)
 
         return K
 

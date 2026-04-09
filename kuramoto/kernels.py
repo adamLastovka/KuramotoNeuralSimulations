@@ -160,7 +160,7 @@ def apply_kernel_jax(
 ) -> jnp.ndarray:
     """JAX kernel dispatcher.
 
-    Notes
+    Notes:
     - For `name="gaussian"`, diagonal entries are forced to 0 (matching the
       existing spatial coupling behavior).
     - For `name="constant"`, returns ones everywhere (diagonal included),
@@ -185,3 +185,22 @@ def apply_kernel_jax(
         out = jnp.where(d > 0, out, 0.0)
 
     return out.astype(jnp.float32)
+
+def dropout_kernel(d: jnp.ndarray, dropout_frac: float, seed: int = 0) -> jnp.ndarray:
+    """Binary dropout mask: 1 with probability (1 - dropout_frac), 0 otherwise.
+
+    Intended to be applied *multiplicatively* to an already-built K matrix,
+    unlike additive structural kernels.
+
+    Args:
+        d: Distance matrix (shape reference only; values are ignored)
+        dropout_frac: Fraction of elements to drop out (set to 0)
+        seed: Integer seed for reproducibility
+
+    Returns:
+        Binary float32 array with the same shape as ``d``.
+    """
+    import jax
+    key = jax.random.PRNGKey(seed)
+    mask = jax.random.bernoulli(key, p=1.0 - dropout_frac, shape=d.shape)
+    return mask.astype(jnp.float32)
