@@ -6,7 +6,7 @@ from .simulation import Simulation
 
 from kuramoto.network import create_cortical_graph, get_graph_metrics
 from kuramoto.analysis import avg_effective_coupling, functional_connectivity
-from kuramoto.adjoint import grads_final_R, grads_mean_R, node_importance_from_gradK, grads_final_R_alpha, grads_mean_R_alpha
+from kuramoto.adjoint import grads_final_R, grads_mean_R, node_importance_from_gradK, grads_final_R_alpha, grads_mean_R_alpha, grads_mean_r_link_alpha
 from kuramoto.analysis import order_parameter
 
 def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: float, lesion_strength: float = 1.0, T_END: float = 10.0, dt: float = 0.01, SEED: int = 42) -> None:
@@ -93,12 +93,18 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
     g = grads_final_R(sim.params, sim.theta0, t0=0.0, t1=T_END, dt=dt, ts=[T_END])
     g_avg = grads_mean_R(sim.params, sim.theta0, t0=0.0, t1=T_END, dt=dt, ts=ts)
 
-    I_final = node_importance_from_gradK(sim.params.K, g.K)
-    I_mean = node_importance_from_gradK(sim.params.K, g_avg.K)
+    # equivalent to IRf_a and IRm_a so not included
+    # IRf_k = node_importance_from_gradK(sim.params.K, g.K)
+    # IRm_k = node_importance_from_gradK(sim.params.K, g_avg.K)
 
     alpha0 = jnp.zeros((sim.grid.N,), dtype=sim.params.K.dtype)
-    dRf_dalpha = grads_final_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+    dRf_dalpha = grads_final_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=jnp.array([t1]))
     dRm_dalpha = grads_mean_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+    dr_link_dalpha = grads_mean_r_link_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
+
+    IRf_a = -dRf_dalpha
+    IRm_a = -dRm_dalpha
+    IRlink_a = -dr_link_dalpha
 
     metrics = {
         "deg_base": graph_metrics["deg_cent"],
@@ -113,8 +119,11 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
         "eigenvector_base": graph_metrics["eigenvector"],
         "eigenvector_eff": graph_metrics_eff["eigenvector"],
         "eigenvector_C_avg": graph_metrics_C_avg["eigenvector"],
-        "I_mean_base": I_mean,
-        "dRm_dalpha": dRm_dalpha,
+        # "I_final_base": I_final,
+        # "IRm_k_base": IRm_k,
+        # "IRf_a_base": IRf_a, # not including Rf as performance metric
+        "IRm_a_base": IRm_a,
+        "IRlink_a_base": IRlink_a,
     }
 
     # Run lesion study for each metric

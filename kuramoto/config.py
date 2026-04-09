@@ -109,6 +109,8 @@ def get_distribution(rng: np.random.Generator, n: int, config: InitOmegaConfig |
         return rng.gamma(shape=config.gamma, scale=config.mu, size=n)
     elif config.mode == "lognormal":
         return rng.lognormal(config.mu, config.sigma, size=n)
+    elif config.mode == "von_mises":
+        return rng.von_mises(config.mu, config.gamma, size=n)
     else:
         raise ValueError(f"Invalid distribution mode: {config.mode}")
 

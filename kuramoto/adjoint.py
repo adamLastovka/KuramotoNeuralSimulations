@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, CenteredNorm, TwoSlopeNorm
 
-from .analysis import order_parameter_jax
+from .analysis import order_parameter_jax, r_link_jax
 from .simulation import KuramotoParams, solve_forward
 from .coupling import apply_node_lesions
 
@@ -67,6 +67,33 @@ def mean_order_parameter_lesioned(
     return mean_order_parameter(params_eff, theta0, t0, t1, dt, ts)
 
 
+def mean_r_link(
+    params: KuramotoParams,
+    theta0: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    ts: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """mean R_link"""
+    sol = solve_forward(params, theta0, t0=t0, t1=t1, dt=dt, ts=ts)
+    return r_link_jax(sol.ys, dt)
+
+
+def mean_r_link_lesioned(
+    params: KuramotoParams,
+    alpha: jnp.ndarray,
+    theta0: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    ts: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """R_link with continuous node lesions applied to params.K."""
+    params_eff = KuramotoParams(omega=params.omega, K=apply_node_lesions(params.K, alpha))
+    return mean_r_link(params_eff, theta0, t0, t1, dt, ts)
+
+
 # --- Adjoint functions ---
 def grads_final_R(
     params: KuramotoParams,
@@ -118,6 +145,19 @@ def grads_mean_R_alpha(
     return jax.grad(mean_order_parameter_lesioned, argnums=1)(params, alpha, theta0, t0, t1, dt, ts)
 
 
+def grads_mean_r_link_alpha(
+    params: KuramotoParams,
+    alpha: jnp.ndarray,
+    theta0: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    ts: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Gradient of R_link w.r.t. node lesion parameters alpha."""
+    return jax.grad(mean_r_link_lesioned, argnums=1)(params, alpha, theta0, t0, t1, dt, ts)
+
+
 def node_importance_from_gradK(K: jnp.ndarray, dJ_dK: jnp.ndarray) -> jnp.ndarray:
     """Aggregate edge sensitivities into a node-importance score.
 
@@ -129,6 +169,25 @@ def node_importance_from_gradK(K: jnp.ndarray, dJ_dK: jnp.ndarray) -> jnp.ndarra
     term_out = jnp.sum(dJ_dK * K, axis=1)  # sum_j dJ/dK[i,j]*K[i,j]
     term_in = jnp.sum(dJ_dK * K, axis=0)   # sum_j dJ/dK[j,i]*K[j,i]
     return term_out + term_in # NOTE: leave signed for now
+
+# --- Finite difference ---
+def finite_diff_dJ_dalpha(sim, obj_fn, node_idx, t0, t1, dt, ts, eps=1e-2):
+    """Central finite-difference for dJ/dalpha_i."""
+    alpha_plus = jnp.zeros(sim.grid.N).at[node_idx].set(eps)
+    alpha_minus = jnp.zeros(sim.grid.N).at[node_idx].set(-eps)
+
+    K_plus = apply_node_lesions(sim.params.K, alpha_plus)
+    K_minus = apply_node_lesions(sim.params.K, alpha_minus)
+
+    J_plus = obj_fn(
+        KuramotoParams(omega=sim.params.omega, K=K_plus),
+        sim.theta0, t0, t1, dt, ts,
+    )
+    J_minus = obj_fn(
+        KuramotoParams(omega=sim.params.omega, K=K_minus),
+        sim.theta0, t0, t1, dt, ts,
+    )
+    return float((J_plus - J_minus) / (2 * eps))
 
 # --- Visualization ---
 def get_norm_cmap(array: jnp.ndarray) -> tuple[Normalize, str]:

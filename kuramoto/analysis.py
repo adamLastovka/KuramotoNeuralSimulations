@@ -6,6 +6,7 @@ from scipy.ndimage import uniform_filter
 
 from .grid import CorticalGrid
 
+#TODO: unify handling of jax vs numpy functions
 
 def order_parameter(theta: np.ndarray) -> tuple[np.ndarray | float, np.ndarray | float]:
     """Compute the (global) order parameter.
@@ -33,33 +34,77 @@ def order_parameter_jax(theta: jnp.ndarray) -> jnp.ndarray:
     sin_mean = jnp.mean(jnp.sin(theta))
     return jnp.sqrt(cos_mean ** 2 + sin_mean ** 2)
 
-def functional_connectivity(theta: jnp.ndarray,dt: float) -> jnp.ndarray:
+def functional_connectivity(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
     """Functional connectivity matrix in JAX.
-    C_ij = 1/dt |mean(exp(i*(theta_i - theta_j)))| (measure of phase locking)
+
+    C_ij = |mean_t exp(i (theta_i(t) - theta_j(t)))| (phase locking over time).
+
     Args:
-        theta: Phase angles over time [T,N] numpy or jnp array
-        dt: Time step
+        theta: Phase angles over time ``(T, N)``.
+        dt: Time step deprecated
+
     Returns:
-        Functional connectivity matrix. [N,N]
+        Matrix ``C`` of shape ``(N, N)``.
     """
     return jnp.abs(jnp.mean(jnp.exp(1j * (theta[:, None, :] - theta[:, :, None])), axis=0))
 
-def R_link(theta: jnp.ndarray | np.ndarray) -> jnp.ndarray:
-    """ Pairwise phase locking measure as defined in Schmidt et al. 2015.1/N(N-1) * sum C_ij. Where C_ij is the functional connectivity matrix.
+
+def r_link_jax(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
+    """Scalar pairwise phase-locking measure R_link (JAX).
+
+    Schmidt et al. 2015 (used as the canonical definition in this package)
+    Let C_ij = |mean_t exp(i*(theta_i(t)-theta_j(t)))|
+    be the functional connectivity matrix from functional_connectivity.
+    Then
+
+        R_link = (1/(N*(N-1))) * sum_{i=1}^N sum_{j=1}^N C_ij
+
+    The double sum includes the diagonal. For phases, C_ii = 1.
+
+    Alternative (off-diagonal-only) expression (not used for now):
+    Since C_ii = 1, the sum over all entries is N + sum for i != j of C_ij.
+    Defining
+
+        R_link_prime = (1/(N*(N-1))) * (sum_{i,j} C_ij - N)
+                    = (1/(N*(N-1))) * sum_{i != j} C_ij
+
+    This equals R_link - 1/(N-1); it is not the same as the paper form above.
+    This module implements the paper definition via jnp.sum(C) / (N * (N - 1)).
+
     Args:
-        theta: Phase angles [N,] or [T,N] numpy or jnp ar:ray
+        theta: Phases (N,) (single snapshot, promoted to (1, N)) or
+            trajectory (T, N).
+        dt: Passed to functional_connectivity.
+
     Returns:
-        Pairwise phase locking measure. [1] or [T,1]
+        Scalar R_link.
+   
     """
-    if isinstance(theta, (np.ndarray, jnp.ndarray)):
-        if theta.ndim == 1:
-            return 1 / (theta.shape[0] * (theta.shape[0] - 1)) * jnp.sum(functional_connectivity(theta))
-        elif theta.ndim == 2:
-            return 1 / (theta[0].shape[0] * (theta[0].shape[0] - 1)) * jnp.sum(functional_connectivity(theta), axis=0)
-        else:
-            raise ValueError(f"Expected theta.ndim == 1 or 2, got {theta.ndim}")
-    else:
+    theta = jnp.asarray(theta)
+    if theta.ndim == 1:
+        theta = theta[None, :]
+    if theta.ndim != 2:
+        raise ValueError(f"r_link_jax expects theta of shape (N,) or (T, N); got {theta.shape}")
+    n = theta.shape[1]
+    if n < 2:
+        raise ValueError(f"r_link_jax requires N >= 2; got N={n}")
+    C = functional_connectivity(theta, dt)
+    return jnp.sum(C) / (n * (n - 1))
+
+
+def R_link(theta: jnp.ndarray | np.ndarray, dt: float = 1.0) -> jnp.ndarray:
+    """Pairwise phase locking (Schmidt et al. 2015); wraps :func:`r_link_jax`.
+
+    Args:
+        theta: Phase angles ``(N,)`` or ``(T, N)``.
+        dt: Time step for functional connectivity (default ``1.0`` if unknown).
+
+    Returns:
+        Scalar :math:`R_{\\mathrm{link}}`.
+    """
+    if not isinstance(theta, (np.ndarray, jnp.ndarray)):
         raise ValueError(f"Expected theta to be a numpy or jnp array, got {type(theta)}")
+    return r_link_jax(jnp.asarray(theta), float(dt))
 
 def compute_effective_coupling(theta: jnp.ndarray, K: jnp.ndarray) -> jnp.ndarray:
     """Compute the effective coupling matrix. K_eff_ij = K_ij * cos(theta_j - theta_i)
