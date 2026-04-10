@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from jax import numpy as jnp
 import numpy as np
 
@@ -6,27 +10,49 @@ from .simulation import Simulation
 
 from kuramoto.network import create_cortical_graph, get_graph_metrics
 from kuramoto.analysis import avg_effective_coupling, functional_connectivity
-from kuramoto.adjoint import grads_final_R, grads_mean_R, node_importance_from_gradK, grads_final_R_alpha, grads_mean_R_alpha, grads_mean_r_link_alpha, ig_mean_R_alpha, ig_mean_r_link_alpha
+from kuramoto.adjoint import grads_final_R_alpha, grads_mean_R_alpha, grads_mean_r_link_alpha, ig_mean_R_alpha, ig_mean_r_link_alpha
 from kuramoto.analysis import order_parameter
 
-def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: float, lesion_strength: float = 1.0, T_END: float = 10.0, dt: float = 0.01, SEED: int = 42) -> None:
-    """Run a lesion study for a given metric and lesion fraction.
-    
+# Spacing between per-fraction blocks in deterministic random-lesion seeds (need n_repeats < this).
+_RANDOM_REPEAT_STRIDE = 1_000
+
+
+def evaluate_single_lesion(
+    sim: Simulation,
+    metric: jnp.ndarray | str,
+    lesion_frac: float,
+    lesion_strength: float = 1.0,
+    T_END: float = 10.0,
+    dt: float = 0.01,
+    rng: np.random.Generator | int | None = None,
+    *,
+    SEED: int | None = None,
+) -> tuple[dict, jnp.ndarray, jnp.ndarray]:
+    """Run one lesioned forward solve (ranked by ``metric`` or random).
+
+    Does not re-run the base simulation or rebuild graphs.
+
     Args:
-        sim: Simulation object
-        metric: Metric vector to use for lesion study (N,) or 'random' for random lesioning
-        lesion_frac: Fraction of nodes to lesion
-        lesion_strength: Strength of lesion
-        T_END: End time
-        dt: Time step
-        RNG: Random number generator
-    
+        sim: Simulation with coupling and initial state already configured.
+        metric: Per-node scores (N,) for ranked lesions, or the string ``"random"``.
+        lesion_frac: Fraction of nodes to lesion.
+        lesion_strength: Continuous lesion strength on selected nodes.
+        T_END, dt: Horizon and step for ``run_with_lesions``.
+        rng: Optional RNG, or an ``int`` seed (wrapped with ``default_rng``).
+        SEED: Keyword-only alternative to passing an int as ``rng`` (backward compatible).
+
     Returns:
-        results_lesioned: Results of lesioned simulation
-        alpha: Lesion mask
+        ``results_lesioned``, lesion mask ``alpha``, effective coupling ``K_lesioned``.
     """
     N = sim.grid.N
-    RNG = np.random.default_rng(SEED)
+    if isinstance(rng, np.random.Generator):
+        RNG = rng
+    elif rng is not None:
+        RNG = np.random.default_rng(int(rng))
+    elif SEED is not None:
+        RNG = np.random.default_rng(SEED)
+    else:
+        RNG = np.random.default_rng(42)
     n_lesion = max(1, int(round(lesion_frac * N)))
     
     if isinstance(metric, str):
@@ -43,23 +69,121 @@ def run_lesion_study(sim: Simulation, metric: jnp.ndarray | str, lesion_frac: fl
     alpha = alpha.at[lesion_idx].set(lesion_strength) 
 
     # Run lesioned simulation
-    results_lesioned = sim.run_with_lesions(alpha, (0, T_END), dt, rng=RNG) # run lesioned simulation
+    results_lesioned = sim.run_with_lesions(alpha, (0, T_END), dt, rng=RNG)
     return results_lesioned, alpha, apply_node_lesions(sim.coupling.K, alpha)
 
-def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.01, RNG: np.random.Generator = None, n_random_repeats: int = 10, lesion_fracs: np.ndarray = np.arange(0, 0.3, 0.02), lesion_strength: float = 1.0, n_ig_steps: int = 20, verbose: bool = True) -> dict[str, float]:
+
+def run_lesion_study(
+    sim: Simulation,
+    metric: jnp.ndarray | str,
+    *,
+    T_END: float = 10.0,
+    dt: float = 0.01,
+    base_seed: int = 42,
+    n_random_repeats: int = 10,
+    lesion_fracs: np.ndarray | None = None,
+    lesion_strength: float = 1.0,
+) -> dict[str, Any]:
+    """Lesion sweep for one ranking vector on an existing simulation (no base re-run, no graphs).
+
+    Only ``run_with_lesions`` is called for each fraction. Random baselines use **deterministic**
+    seeds so the same ``(lesion_frac index, repeat index)`` always draws the same random node set,
+    independent of which metric vector is ranked. That makes random curves comparable across
+    metrics and fully repeatable. Requires ``n_random_repeats < _RANDOM_REPEAT_STRIDE`` (10_000).
+
+    Returns:
+        Same structure as one entry from ``evaluate_metric_scores``:
+        ``AUC_ranked``, ``AUC_random``, ``ABC``, and the four R curve lists.
+    """
+    if n_random_repeats >= _RANDOM_REPEAT_STRIDE:
+        raise ValueError(f"n_random_repeats must be < {_RANDOM_REPEAT_STRIDE}")
+
+    if lesion_fracs is None:
+        lesion_fracs = np.arange(0, 0.3, 0.02)
+    lesion_fracs = np.asarray(lesion_fracs, dtype=float)
+
+    R_final_ranked: list[float] = []
+    R_avg_ranked: list[float] = []
+    R_final_random: list[float] = []
+    R_avg_random: list[float] = []
+
+    n_t: int | None = None
+    for fi, lesion_frac in enumerate(lesion_fracs):
+        res_ranked, _, _ = evaluate_single_lesion(
+            sim,
+            metric,
+            float(lesion_frac),
+            lesion_strength,
+            T_END,
+            dt,
+            base_seed,
+        )
+        R_ranked, _ = order_parameter(res_ranked["theta"])
+        if n_t is None:
+            n_t = int(R_ranked.shape[0])
+
+        R_random = np.zeros((n_t, n_random_repeats))
+        rng = np.random.default_rng(base_seed + _RANDOM_REPEAT_STRIDE * fi)
+        random_seeds = rng.integers(low=0, high=2**32 - 1, size=n_random_repeats, dtype=np.uint32)
+        for i, repeat_seed in enumerate(random_seeds):
+            res_rand, _, _ = evaluate_single_lesion(
+                sim, "random", float(lesion_frac), lesion_strength, T_END, dt, repeat_seed
+            )
+            R_random[:, i], _ = order_parameter(res_rand["theta"])
+        R_random = np.mean(R_random, axis=1)
+
+        R_final_ranked.append(float(R_ranked[-1]))
+        R_avg_ranked.append(float(np.mean(R_ranked)))
+        R_final_random.append(float(R_random[-1]))
+        R_avg_random.append(float(np.mean(R_random)))
+
+    AUC_ranked = float(np.trapezoid(R_avg_ranked, lesion_fracs))
+    AUC_random = float(np.trapezoid(R_avg_random, lesion_fracs))
+    ABC = AUC_random - AUC_ranked
+
+    return {
+        "AUC_ranked": AUC_ranked,
+        "AUC_random": AUC_random,
+        "ABC": ABC,
+        "R_final_ranked": R_final_ranked,
+        "R_avg_ranked": R_avg_ranked,
+        "R_final_random": R_final_random,
+        "R_avg_random": R_avg_random,
+    }
+
+
+def evaluate_metric_scores(
+    sim: Simulation,
+    T_END: float = 10.0,
+    dt: float = 0.01,
+    RNG: np.random.Generator | None = None,
+    n_random_repeats: int = 10,
+    lesion_fracs: np.ndarray | None = None,
+    lesion_strength: float = 1.0,
+    n_ig_steps: int = 20,
+    verbose: bool = True,
+    base_seed: int = 42,
+) -> dict[str, dict[str, Any]]:
     """Evaluate metric scores for a given simulation.
     
     Args:
         sim: Simulation object
         T_END: End time
         dt: Time step
-        RNG: Random number generator
+        RNG: Random number generator (base forward run and coupling dropout, etc.)
         n_random_repeats: Number of random repeats
         lesion_fracs: Lesion fractions
         lesion_strength: Lesion strength
+        base_seed: Base integer for deterministic random-lesion draws in
+            ``run_lesion_study`` (same across all metrics; vary per ensemble seed in multi-seed studies).
     Returns:
         metric_scores: Metric scores
     """
+    if RNG is None:
+        RNG = np.random.default_rng()
+    if lesion_fracs is None:
+        lesion_fracs = np.arange(0, 0.3, 0.02)
+
     # Run base simulation
     if verbose:
         print("Running base simulation...")
@@ -90,19 +214,11 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
     ts = jnp.arange(t0+dt, t1 + dt / 2, dt)
     ts = ts[ts <= t1]
 
-    g = grads_final_R(sim.params, sim.theta0, t0=0.0, t1=T_END, dt=dt, ts=[T_END])
-    g_avg = grads_mean_R(sim.params, sim.theta0, t0=0.0, t1=T_END, dt=dt, ts=ts)
-
-    # equivalent to IRf_a and IRm_a so not included
-    # IRf_k = node_importance_from_gradK(sim.params.K, g.K)
-    # IRm_k = node_importance_from_gradK(sim.params.K, g_avg.K)
-
     alpha0 = jnp.zeros((sim.grid.N,), dtype=sim.params.K.dtype)
     dRf_dalpha = grads_final_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=jnp.array([t1]))
     dRm_dalpha = grads_mean_R_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
     dr_link_dalpha = grads_mean_r_link_alpha(sim.params, alpha0, sim.theta0, t0, t1, dt, ts=ts)
 
-    IRf_a = -dRf_dalpha
     IRm_a = -dRm_dalpha
     IRlink_a = -dr_link_dalpha
 
@@ -141,45 +257,21 @@ def evaluate_metric_scores(sim: Simulation, T_END: float = 10.0, dt: float = 0.0
         print("Running lesion study for each metric...")
     metric_scores = {}
     for metric_name, metric in metrics.items():
-        print(f"Evaluating {metric_name}...")
-
-        R_final_ranked = []
-        R_avg_ranked = []
-        R_final_random = []
-        R_avg_random = []
-        for lesion_frac in lesion_fracs:
-            res_ranked_lesion, alpha_ranked, K_lesioned_ranked = run_lesion_study(sim, metric, lesion_frac, lesion_strength, T_END, dt, RNG)
-            R_ranked_lesion, _ = order_parameter(res_ranked_lesion["theta"])
-
-            R_random_lesion = np.zeros((len(ts), n_random_repeats))
-            for i in range(n_random_repeats):
-                res_random_lesion, alpha_random, K_lesioned_random = run_lesion_study(sim, "random", lesion_frac, lesion_strength, T_END, dt, RNG)
-                R_random_lesion[:, i], _ = order_parameter(res_random_lesion["theta"])
-            R_random_lesion = np.mean(R_random_lesion, axis=1)
-
-            R_final_ranked.append(R_ranked_lesion[-1])
-            R_avg_ranked.append(np.mean(R_ranked_lesion))
-            R_final_random.append(R_random_lesion[-1])
-            R_avg_random.append(np.mean(R_random_lesion))
-
-        # Metric scores
-        AUC_ranked = np.trapezoid(R_avg_ranked, lesion_fracs)
-        AUC_random = np.trapezoid(R_avg_random, lesion_fracs)
-        ABC = AUC_random - AUC_ranked
-
-        metric_scores[metric_name] = {
-            "AUC_ranked": AUC_ranked,
-            "AUC_random": AUC_random,
-            "ABC": ABC,
-            "R_final_ranked": R_final_ranked,
-            "R_avg_ranked": R_avg_ranked,
-            "R_final_random": R_final_random,
-            "R_avg_random": R_avg_random,
-        }
+        if verbose:
+            print(f"Evaluating {metric_name}...")
+        metric_scores[metric_name] = run_lesion_study(
+            sim,
+            metric,
+            T_END=T_END,
+            dt=dt,
+            base_seed=base_seed,
+            n_random_repeats=n_random_repeats,
+            lesion_fracs=lesion_fracs,
+            lesion_strength=lesion_strength,
+        )
     return metric_scores
 
 # --- Multi-seed aggregation helpers ---
-
 def list_metrics(results_for_case: dict[int, dict]) -> list[str]:
     """Return sorted metric names from a dict keyed by seed."""
     first_seed = next(iter(results_for_case))

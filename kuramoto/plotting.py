@@ -1006,10 +1006,13 @@ def plot_auc_dotplot(
 
     ax.hlines(y, np.minimum(auc_r, auc_rand), np.maximum(auc_r, auc_rand),
               color="0.85", lw=2, zorder=0)
+    
+    mc = "C0"
+    mc_rand = "C1"
     for i, m in enumerate(order):
-        mc = color_for_metric(m)
+        # mc = color_for_metric(m)
         ax.plot(auc_r[i], y[i], "o", ms=7, color=mc, zorder=2, label="ranked" if i == 0 else None)
-        ax.plot(auc_rand[i], y[i], "s", ms=6, color=mc, alpha=0.55, zorder=2,
+        ax.plot(auc_rand[i], y[i], "s", ms=6, color=mc_rand, alpha=1, zorder=2,
                 label="random" if i == 0 else None)
 
     ax.set_yticks(y)
@@ -1045,8 +1048,10 @@ def plot_abc_lollipop(
         fig = ax.get_figure()
 
     ax.hlines(y, 0, abc, color="0.75", lw=2, zorder=1)
+
+    mc = "C0"  # color_for_metric(m)
     for i, m in enumerate(order):
-        ax.plot(abc[i], y[i], "o", ms=8, color=color_for_metric(m), zorder=2, clip_on=False)
+        ax.plot(abc[i], y[i], "o", ms=8, color=mc, zorder=2, clip_on=False)
 
     ax.set_yticks(y)
     ax.set_yticklabels(order)
