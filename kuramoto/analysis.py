@@ -41,10 +41,10 @@ def get_R_jax(theta: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     theta = jnp.asarray(theta)
     if theta.ndim == 1:
         z = jnp.mean(jnp.exp(1j * theta))
-        return jnp.abs(z), jnp.angle(z)
+        return jnp.abs(z)
     elif theta.ndim == 2:
         z = jnp.mean(jnp.exp(1j * theta), axis=1)  # (T,)
-        return jnp.abs(z), jnp.angle(z)
+        return jnp.abs(z)
     else:
         raise ValueError(f"get_R_link_jax expects (N,) or (T,N); got shape={theta.shape}")
 

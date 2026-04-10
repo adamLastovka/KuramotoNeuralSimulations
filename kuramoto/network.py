@@ -134,13 +134,13 @@ def plot_cortical_graph(graph: nx.Graph,layout: str = "spring", ax: plt.Axes | N
         fig = ax.get_figure()
 
     if layout == "spring":
-        pos = nx.spring_layout(graph)
+        pos = nx.spring_layout(graph,seed=42)
     elif layout == "circular":
-        pos = nx.circular_layout(graph)
+        pos = nx.circular_layout(graph,seed=42)
     elif layout == "planar":
-        pos = nx.planar_layout(graph)
+        pos = nx.planar_layout(graph,seed=42)
     elif layout == "random":
-        pos = nx.random_layout(graph)
+        pos = nx.random_layout(graph,seed=42)
     elif layout == "grid":
         pos = {}
         N = graph.number_of_nodes()
