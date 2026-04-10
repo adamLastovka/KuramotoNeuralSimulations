@@ -74,7 +74,7 @@ class InitThetaConfig:
     mode: str = "vonmises"
     mu: float = np.pi
     sigma: float = 1.0
-    gamma: float = 0.3
+    gamma: float = 0.2
 
 @dataclass
 class InitOmegaConfig:
@@ -274,7 +274,7 @@ def get_components_bottleneck(k_factor: float = 1.0, dropout_frac: float = 0.3, 
     return [
         KernelComponentConfig(
             kernel="gaussian",
-            base_strength=0.5*k_factor,
+            base_strength=0.4*k_factor,
             kernel_params={"sigma": 1.0},
             radius=2.0,
             node_groups=[0],
@@ -282,7 +282,7 @@ def get_components_bottleneck(k_factor: float = 1.0, dropout_frac: float = 0.3, 
         ),
         KernelComponentConfig(
             kernel="gaussian",
-            base_strength=0.5*k_factor,
+            base_strength=0.4*k_factor,
             kernel_params={"sigma": 1.0},
             radius=2.0,
             node_groups=[1],
@@ -291,7 +291,7 @@ def get_components_bottleneck(k_factor: float = 1.0, dropout_frac: float = 0.3, 
         # bottleneck-like hub (group 2) coupling to/from everyone
         KernelComponentConfig(
             kernel="gaussian",
-            base_strength=0.4*k_factor,
+            base_strength=0.2*k_factor,
             kernel_params={"sigma": 4.0},
             radius=4.0,
             node_groups=[2],
@@ -299,7 +299,7 @@ def get_components_bottleneck(k_factor: float = 1.0, dropout_frac: float = 0.3, 
         ),
         KernelComponentConfig(
             kernel="gaussian",
-            base_strength=0.4*k_factor,
+            base_strength=0.2*k_factor,
             kernel_params={"sigma": 4.0},
             radius=4.0,
             node_groups=[2],
