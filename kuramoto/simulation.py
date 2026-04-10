@@ -8,6 +8,7 @@ import diffrax
 
 from .coupling import CouplingMatrix, apply_node_lesions
 from .grid import CorticalGrid
+from .analysis import get_R_jax, get_R_link_jax
 
 class KuramotoParams(NamedTuple):
     """Differentiable parameter pytree for the Kuramoto model."""
@@ -87,6 +88,7 @@ class Simulation:
         t_span: tuple[float, float],
         dt: float,
         rng=None,
+        postprocess: bool = False,
     ) -> dict[str, np.ndarray]:
         """Integrate the Kuramoto model.
 
@@ -133,6 +135,14 @@ class Simulation:
             "omega": omega_np,
             "K": K_np,
         }
+
+        if postprocess:
+            R, _ = get_R_jax(sol.ys)
+            R_link = get_R_link_jax(sol.ys, dt)
+            self.results["R"] = R
+            self.results["Rf"] = R[-1]
+            self.results["Rm"] = np.mean(R)
+            self.results["R_link"] = R_link
         return self.results
 
     def run_with_lesions(self, alpha: jnp.ndarray, t_span: tuple[float, float], dt: float, rng=None) -> dict[str, np.ndarray]:

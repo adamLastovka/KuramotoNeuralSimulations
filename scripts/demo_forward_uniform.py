@@ -10,7 +10,7 @@ from kuramoto.config import (
     InitOmegaConfig,
     build_simulation,
 )
-from kuramoto.analysis import order_parameter
+from kuramoto.analysis import get_R
 
 
 def main():
@@ -26,8 +26,8 @@ def main():
     sim = build_simulation(config=cfg, rng=rng)
     results = sim.run((0.0, 10.0), dt=0.05)
 
-    R0, _ = order_parameter(results["theta"][0])
-    Rf, _ = order_parameter(results["theta"][-1])
+    R0, _ = get_R(results["theta"][0])
+    Rf, _ = get_R(results["theta"][-1])
 
     print("=== Forward demo: uniform coupling ===")
     print(f"N = {sim.grid.N} ({cfg.grid.shape[0]}x{cfg.grid.shape[1]})")

@@ -17,7 +17,7 @@ from kuramoto.config import (
     SimulationConfig,
     build_simulation,
 )
-from kuramoto.analysis import order_parameter_jax
+from kuramoto.analysis import get_R_link_jax
 from kuramoto.simulation import KuramotoParams, solve_forward
 
 
@@ -109,7 +109,7 @@ def main():
         )
         params = KuramotoParams(omega=omega0, K=coupling.K)
         sol = solve_forward(params, theta0, t0=t0, t1=t1, dt=dt, ts=ts)
-        return order_parameter_jax(sol.ys[-1])
+        return get_R_link_jax(sol.ys[-1])
 
     sigma0 = jnp.array(1.2)
     dR_dsigma = jax.grad(objective)(sigma0)

@@ -27,8 +27,9 @@ from .simulation import (
     solve_forward,
 )
 from .analysis import (
-    order_parameter,
-    order_parameter_jax,
+    get_R,
+    get_R_jax,
+    get_R_link_jax,
     gradient_from_state,
     gradient_time_series,
     gradient_maps,
@@ -79,8 +80,9 @@ __all__ = [
     "KuramotoParams",
     "kuramoto_rhs",
     "solve_forward",
-    "order_parameter",
-    "order_parameter_jax",
+    "get_R",
+    "get_R_jax",
+    "get_R_link_jax",
     "final_order_parameter",
     "mean_order_parameter",
     "grads_final_R",

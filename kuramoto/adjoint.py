@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 import numpy as np
 
-from .analysis import order_parameter_jax, r_link_jax
+from .analysis import get_R_link_jax, get_R_link_jax
 from .simulation import Simulation, KuramotoParams, solve_forward
 from .coupling import apply_node_lesions
 
@@ -20,7 +20,7 @@ def final_order_parameter(
 ) -> jnp.ndarray:
     """R(T) -- order parameter at the final saved time."""
     sol = solve_forward(params, theta0, t0=t0, t1=t1, dt=dt, ts=ts)
-    return order_parameter_jax(sol.ys[-1])
+    return get_R_link_jax(sol.ys[-1])
 
 
 def mean_order_parameter(
@@ -33,7 +33,7 @@ def mean_order_parameter(
 ) -> jnp.ndarray:
     """Time-averaged R -- mean of R(t) over all saved times."""
     sol = solve_forward(params, theta0, t0=t0, t1=t1, dt=dt, ts=ts)
-    Rs = jax.vmap(order_parameter_jax)(sol.ys)
+    Rs = jax.vmap(get_R_link_jax)(sol.ys)
     return jnp.mean(Rs)
 
 
@@ -75,7 +75,7 @@ def mean_r_link(
 ) -> jnp.ndarray:
     """mean R_link"""
     sol = solve_forward(params, theta0, t0=t0, t1=t1, dt=dt, ts=ts)
-    return r_link_jax(sol.ys, dt)
+    return get_R_link_jax(sol.ys, dt)
 
 
 def mean_r_link_lesioned(

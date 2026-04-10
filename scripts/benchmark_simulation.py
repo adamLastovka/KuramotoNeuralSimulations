@@ -25,7 +25,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from kuramoto.analysis import order_parameter, local_order
+from kuramoto.analysis import get_R, local_order
 from kuramoto.config import (
     SimulationConfig,
     GridConfig,
@@ -66,7 +66,7 @@ def run_benchmark(
     if with_postprocess:
         # Simple postprocessing to include NumPy/SciPy cost.
         theta_final = results["theta"][-1]
-        R_final, _ = order_parameter(theta_final)
+        R_final, _ = get_R(theta_final)
         _ = local_order(theta_final, sim.grid)
         # Force evaluation of R_final.
         _ = float(R_final)

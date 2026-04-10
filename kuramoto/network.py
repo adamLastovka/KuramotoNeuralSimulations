@@ -2,6 +2,7 @@
 import networkx as nx
 from .coupling import CouplingMatrix
 from .simulation import Simulation
+from .config import KernelComponentConfig
 
 import jax.numpy as jnp
 import numpy as np

@@ -11,7 +11,7 @@ from .simulation import Simulation
 from kuramoto.network import create_cortical_graph, get_graph_metrics
 from kuramoto.analysis import avg_effective_coupling, functional_connectivity
 from kuramoto.adjoint import grads_final_R_alpha, grads_mean_R_alpha, grads_mean_r_link_alpha, ig_mean_R_alpha, ig_mean_r_link_alpha
-from kuramoto.analysis import order_parameter
+from kuramoto.analysis import get_R_jax
 
 # Spacing between per-fraction blocks in deterministic random-lesion seeds (need n_repeats < this).
 _RANDOM_REPEAT_STRIDE = 1_000
@@ -118,7 +118,7 @@ def run_lesion_study(
             dt,
             base_seed,
         )
-        R_ranked, _ = order_parameter(res_ranked["theta"])
+        R_ranked, _ = get_R_jax(res_ranked["theta"])
         if n_t is None:
             n_t = int(R_ranked.shape[0])
 
@@ -129,7 +129,7 @@ def run_lesion_study(
             res_rand, _, _ = evaluate_single_lesion(
                 sim, "random", float(lesion_frac), lesion_strength, T_END, dt, repeat_seed
             )
-            R_random[:, i], _ = order_parameter(res_rand["theta"])
+            R_random[:, i], _ = get_R_jax(res_rand["theta"])
         R_random = np.mean(R_random, axis=1)
 
         R_final_ranked.append(float(R_ranked[-1]))

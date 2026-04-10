@@ -74,7 +74,7 @@ class InitThetaConfig:
     mode: str = "vonmises"
     mu: float = np.pi
     sigma: float = 1.0
-    gamma: float = 0.5
+    gamma: float = 0.3
 
 @dataclass
 class InitOmegaConfig:
@@ -256,3 +256,119 @@ def build_simulation(
         theta0=theta0,
         config=config,
     )
+
+
+# --- Predefined network configurations ---
+def get_groupids_bottleneck(grid_shape: tuple[int, int]) -> list[int]:
+    n_rows, n_cols = grid_shape
+    group_ids = np.zeros((n_rows, n_cols), dtype=int)
+    group_ids[n_rows // 2 :, :] = 1  # bottom half
+    group_ids[n_rows // 2 - 2 : n_rows // 2 + 2, n_cols // 2 - 2 : n_cols // 2 + 2] = 2  # central block
+    return group_ids.ravel().tolist()
+
+def get_groupids_unstructured(grid_shape: tuple[int, int], n_groups: int, rng: np.random.Generator) -> list[int]:
+    n = int(np.prod(grid_shape))
+    return rng.integers(0, n_groups, size=n, endpoint=False).astype(int).tolist()
+
+def get_components_bottleneck(k_factor: float = 1.0, dropout_frac: float = 0.3, seed: int = 42) -> list[KernelComponentConfig]:
+    return [
+        KernelComponentConfig(
+            kernel="gaussian",
+            base_strength=0.5*k_factor,
+            kernel_params={"sigma": 1.0},
+            radius=2.0,
+            node_groups=[0],
+            edge_mode="within",
+        ),
+        KernelComponentConfig(
+            kernel="gaussian",
+            base_strength=0.5*k_factor,
+            kernel_params={"sigma": 1.0},
+            radius=2.0,
+            node_groups=[1],
+            edge_mode="within",
+        ),
+        # bottleneck-like hub (group 2) coupling to/from everyone
+        KernelComponentConfig(
+            kernel="gaussian",
+            base_strength=0.4*k_factor,
+            kernel_params={"sigma": 4.0},
+            radius=4.0,
+            node_groups=[2],
+            edge_mode="outgoing",
+        ),
+        KernelComponentConfig(
+            kernel="gaussian",
+            base_strength=0.4*k_factor,
+            kernel_params={"sigma": 4.0},
+            radius=4.0,
+            node_groups=[2],
+            edge_mode="incoming",
+        ),
+        # weak one-way coupling from group 1 to group 0
+        KernelComponentConfig(
+            kernel="gaussian",
+            base_strength=0.1*k_factor,
+            kernel_params={"sigma": 2.0},
+            radius=2.0,
+            node_groups=[1],
+            edge_mode="custom",
+            to_node_groups=[0],
+        ),
+        # Apply dropout to all groups
+        KernelComponentConfig(
+        kernel="dropout",
+        kernel_params={"dropout_frac": dropout_frac},
+        node_groups=[0,1,2],
+        edge_mode="within",
+        seed=seed,
+        )
+    ]
+
+def get_components_unstructured(n_groups: int = 6, k_factor: float = 2.0, seed: int = 42) -> list[KernelComponentConfig]:
+    if n_groups % 2 == 1:
+        raise ValueError("n_groups must be even")
+
+    # Size bounds
+    SIZE_LB = 0.5
+    SIZE_UB = 2.0
+
+    # Size factors
+    size_factors = np.random.uniform(SIZE_LB, SIZE_UB, size=n_groups-1)
+
+    comps: list[KernelComponentConfig] = []
+    for g, sf in enumerate(size_factors):
+        comps.append(
+            KernelComponentConfig(
+                kernel="gaussian",
+                base_strength=1.0*k_factor,
+                kernel_params={"sigma": 1.0*sf},
+                radius=3.0*sf,
+                node_groups=[g],
+                edge_mode="within",
+            )
+        )
+
+    # Only one mexican hat component
+    mh_params = {"sigma_e": 1.0, "sigma_i": 3.0, "a_e": 1.0, "a_i": 0.8}
+    comps.append(
+        KernelComponentConfig(
+            kernel="mexican_hat",
+            base_strength=0.3,
+            kernel_params=mh_params,
+            radius=4.0,
+            node_groups=[n_groups-1],
+            edge_mode="within",
+        )
+    )
+
+    # Apply dropout to all groups
+    comps.append(KernelComponentConfig(
+        kernel="dropout",
+        kernel_params={"dropout_frac": 0.3},
+        node_groups=list(range(n_groups)),
+        edge_mode="within",
+        seed=seed,
+    ))
+
+    return comps

@@ -11,7 +11,7 @@ from kuramoto.config import (
     KernelComponentConfig,
     build_simulation,
 )
-from kuramoto.analysis import order_parameter
+from kuramoto.analysis import get_R
 
 
 def make_group_ids(shape: tuple[int, int]) -> list[int]:
@@ -88,8 +88,8 @@ def main():
     plot_coupling_matrix(sim.params.K, title="Coupling matrix K")
     plt.show()
 
-    R0, _ = order_parameter(results["theta"][0])
-    Rf, _ = order_parameter(results["theta"][-1])
+    R0, _ = get_R(results["theta"][0])
+    Rf, _ = get_R(results["theta"][-1])
 
     print("=== Heterogeneous coupling demo ===")
     print(f"N={sim.grid.N}, grid={grid_shape}, groups={{0,1}}")

@@ -8,8 +8,8 @@ from .grid import CorticalGrid
 
 #TODO: unify handling of jax vs numpy functions
 
-def order_parameter(theta: np.ndarray) -> tuple[np.ndarray | float, np.ndarray | float]:
-    """Compute the (global) order parameter.
+def get_R(theta: np.ndarray) -> tuple[np.ndarray | float, np.ndarray | float]:
+    """Compute the R parameter.
 
     Accepts:
       - ``theta`` with shape ``(N,)`` -> returns ``(R, psi)`` as floats
@@ -25,14 +25,28 @@ def order_parameter(theta: np.ndarray) -> tuple[np.ndarray | float, np.ndarray |
     if x.ndim == 2:
         z = np.mean(np.exp(1j * x), axis=1)  # (T,)
         return np.abs(z), np.angle(z)
-    raise ValueError(f"order_parameter expects (N,) or (T,N); got shape={x.shape}")
+    raise ValueError(f"get_R expects (N,) or (T,N); got shape={x.shape}")
 
 
-def order_parameter_jax(theta: jnp.ndarray) -> jnp.ndarray:
-    """Order parameter R in JAX, scalar arithmetic only"""
-    cos_mean = jnp.mean(jnp.cos(theta))
-    sin_mean = jnp.mean(jnp.sin(theta))
-    return jnp.sqrt(cos_mean ** 2 + sin_mean ** 2)
+def get_R_jax(theta: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """
+    Get R in JAX Handles both (N,) and (T, N) shapes. Returns (R, psi).
+
+    Args:
+        theta: phases. Shape (N,) or (T, N).
+
+    Returns:
+        (R, psi) if (N,) input; (R_t, psi_t) if (T, N) input.
+    """
+    theta = jnp.asarray(theta)
+    if theta.ndim == 1:
+        z = jnp.mean(jnp.exp(1j * theta))
+        return jnp.abs(z), jnp.angle(z)
+    elif theta.ndim == 2:
+        z = jnp.mean(jnp.exp(1j * theta), axis=1)  # (T,)
+        return jnp.abs(z), jnp.angle(z)
+    else:
+        raise ValueError(f"get_R_link_jax expects (N,) or (T,N); got shape={theta.shape}")
 
 def functional_connectivity(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
     """Functional connectivity matrix in JAX.
@@ -49,7 +63,7 @@ def functional_connectivity(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
     return jnp.abs(jnp.mean(jnp.exp(1j * (theta[:, None, :] - theta[:, :, None])), axis=0))
 
 
-def r_link_jax(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
+def get_R_link_jax(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
     """Scalar pairwise phase-locking measure R_link (JAX).
 
     Schmidt et al. 2015 (used as the canonical definition in this package)
@@ -84,16 +98,16 @@ def r_link_jax(theta: jnp.ndarray, dt: float) -> jnp.ndarray:
     if theta.ndim == 1:
         theta = theta[None, :]
     if theta.ndim != 2:
-        raise ValueError(f"r_link_jax expects theta of shape (N,) or (T, N); got {theta.shape}")
+        raise ValueError(f"get_R_link_jax expects theta of shape (N,) or (T, N); got {theta.shape}")
     n = theta.shape[1]
     if n < 2:
-        raise ValueError(f"r_link_jax requires N >= 2; got N={n}")
+        raise ValueError(f"get_R_link_jax requires N >= 2; got N={n}")
     C = functional_connectivity(theta, dt)
     return jnp.sum(C) / (n * (n - 1))
 
 
-def R_link(theta: jnp.ndarray | np.ndarray, dt: float = 1.0) -> jnp.ndarray:
-    """Pairwise phase locking (Schmidt et al. 2015); wraps :func:`r_link_jax`.
+def get_R_link(theta: jnp.ndarray | np.ndarray, dt: float = 1.0) -> jnp.ndarray:
+    """Pairwise phase locking (Schmidt et al. 2015); wraps :func:`get_R_link_jax`.
 
     Args:
         theta: Phase angles ``(N,)`` or ``(T, N)``.
@@ -104,7 +118,7 @@ def R_link(theta: jnp.ndarray | np.ndarray, dt: float = 1.0) -> jnp.ndarray:
     """
     if not isinstance(theta, (np.ndarray, jnp.ndarray)):
         raise ValueError(f"Expected theta to be a numpy or jnp array, got {type(theta)}")
-    return r_link_jax(jnp.asarray(theta), float(dt))
+    return get_R_link_jax(jnp.asarray(theta), float(dt))
 
 def compute_effective_coupling(theta: jnp.ndarray, K: jnp.ndarray) -> jnp.ndarray:
     """Compute the effective coupling matrix. K_eff_ij = K_ij * cos(theta_j - theta_i)
