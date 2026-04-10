@@ -137,7 +137,7 @@ class Simulation:
         }
 
         if postprocess:
-            R, _ = get_R_jax(sol.ys)
+            R = get_R_jax(sol.ys)
             R_link = get_R_link_jax(sol.ys, dt)
             self.results["R"] = R
             self.results["Rf"] = R[-1]
